@@ -1,0 +1,1838 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Traces">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="favicon.png">
+<meta name="theme-color" content="#14201A">
+<title>Traces</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F3F5F2; --panel:rgba(243,245,242,.95); --ink:#14201A; --muted:#3B4842;
+  --line:rgba(20,32,26,.14); --vis:#F0561D; --vis-ink:#fff; --track:#C2177A;
+  --relief:#3F6B56; --relief-soft:rgba(63,107,86,.22); --warn:#B3261E; --soon:#A85A00;
+  --num:"Barlow Condensed","Arial Narrow",sans-serif; --txt:"Barlow",system-ui,-apple-system,sans-serif;
+  --panel-h:200px; --hud-b:200px;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --paper:#111813; --panel:rgba(17,24,19,.92); --ink:#ECF2EE; --muted:#BFCBC4; --soon:#FFB547; --warn:#FF6B5E;
+    --line:rgba(236,242,238,.16); --relief:#7FB89B; --relief-soft:rgba(127,184,155,.2); --track:#FF4FA8; color-scheme:dark; }
+}
+/* Plein soleil : contraste maximal, toujours clair */
+body.sun{--paper:#fff; --panel:#fff; --ink:#000; --muted:#1E2A24; --line:rgba(0,0,0,.45); --warn:#B3261E; --soon:#8A4A00;
+  --relief:#1E4D38; --relief-soft:rgba(30,77,56,.3); --track:#C2177A; color-scheme:light}
+*{box-sizing:border-box}
+html{background:#14201A}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--paper);color:var(--ink);font-family:var(--txt);-webkit-tap-highlight-color:transparent}
+#map{position:fixed;inset:0;z-index:1;background:var(--paper)}
+.leaflet-bottom{bottom:var(--panel-h)}
+.leaflet-control-attribution{font-size:9px;background:var(--panel)!important;color:var(--muted)}
+.leaflet-control-attribution a{color:var(--muted)}
+
+/* HUD */
+.hud{position:fixed;z-index:1000;left:8px;right:8px;top:calc(env(safe-area-inset-top,0px) + 8px);
+  background:var(--panel);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  border:1px solid var(--line);border-radius:16px;padding:10px 14px 8px;
+  display:grid;grid-template-columns:1fr 1fr;grid-template-areas:"spd spd" "alt rest" "sub sub";column-gap:14px}
+.stat{display:flex;flex-direction:column;min-width:0}
+.lbl{font-size:22px;font-weight:600;color:var(--muted);line-height:1.2}
+.val{display:block;white-space:nowrap;font-family:var(--num);font-weight:700;font-variant-numeric:tabular-nums;line-height:.95;letter-spacing:-.01em}
+.unit{font-family:var(--num);font-weight:600;font-size:.45em;color:var(--muted);margin-left:3px;letter-spacing:0}
+#s-spd{grid-area:spd;justify-content:center;border-bottom:1px solid var(--line);padding:0 0 4px;margin-bottom:6px}
+#s-spd .val{font-size:104px}
+#s-alt{grid-area:alt}
+#s-rest{grid-area:rest}
+#s-alt .val,#s-rest .val{font-size:58px}
+.tag{font-size:19px;color:var(--muted);margin-top:2px}
+.sub{grid-area:sub;display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px;padding-top:7px;border-top:1px solid var(--line);font-size:21px;color:var(--muted)}
+.sub span{display:flex;flex-direction:column;line-height:1.15}
+.sub i,.sub em{font-style:normal;white-space:nowrap}
+.sub span:nth-child(2){text-align:center}.sub span:nth-child(3){text-align:right}
+.sub b{font-family:var(--num);font-size:38px;color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
+.info{grid-area:info;display:flex;flex-direction:column;gap:3px;margin-top:7px;padding-top:6px;border-top:1px solid var(--line);font-size:21px;line-height:1.25}
+.info span:empty{display:none}
+.info .late{color:var(--warn);font-weight:600}
+.info .soon{color:var(--soon);font-weight:600}
+body.sun .lbl,body.sun .tag,body.sun .sub,body.sun .info{font-weight:600}
+body.sun .hud,body.sun .panel{border:2px solid #000;backdrop-filter:none;-webkit-backdrop-filter:none}
+
+.offtrack{position:fixed;z-index:1001;left:50%;transform:translateX(-50%);top:var(--hud-b);
+  background:var(--warn);color:#fff;font-weight:600;padding:8px 16px;border-radius:999px;font-size:23px;display:none;white-space:nowrap}
+.offtrack.on{display:block}
+
+/* Panneau bas */
+.panel{position:fixed;z-index:1000;left:8px;right:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 8px);
+  background:var(--panel);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  border:1px solid var(--line);border-radius:16px;padding:10px}
+.ptitle{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:0 4px 4px;font-size:19px}
+.ptitle .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ptitle .meta{color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+#profile{width:100%;height:104px;display:block}
+.btns{display:grid;grid-template-columns:1.35fr 1fr 1fr 1fr 1fr;gap:6px;margin-top:8px}
+.btns button{font-size:19px;padding:0 2px;min-height:58px}
+button[aria-pressed=true].tog{border-color:var(--ink)}
+body.noprof .ptitle,body.noprof #profile{display:none}
+body.noprof .btns{margin-top:0}
+
+button,.filebtn{font:600 19px var(--txt);color:var(--ink);background:transparent;border:1px solid var(--line);
+  border-radius:12px;min-height:56px;padding:0 8px;display:flex;align-items:center;justify-content:center;cursor:pointer;text-decoration:none}
+button:disabled{opacity:.4}
+button:focus-visible,.filebtn:focus-within,a.filebtn:focus-visible{outline:3px solid var(--vis);outline-offset:2px}
+button.primary,.filebtn.primary{background:var(--vis);color:var(--vis-ink);border-color:var(--vis)}
+button.primary.running{background:transparent;color:var(--vis);border:2px solid var(--vis)}
+button.hot{border-color:var(--vis);color:var(--vis)}
+input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+
+/* Grands boutons (gants) */
+body.big .btns button{min-height:72px;font-size:21px}
+body.big .sheet button,body.big .sheet .filebtn{min-height:64px;font-size:21px}
+
+/* Paysage (téléphone sur le guidon) */
+@media (orientation: landscape) and (max-height: 540px){
+  .hud{top:calc(env(safe-area-inset-top,0px) + 6px);left:calc(env(safe-area-inset-left,0px) + 6px);right:auto;
+    bottom:auto;max-height:calc(100vh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 12px);width:340px;padding:8px 12px;overflow:hidden;
+    grid-template-columns:1fr 1fr;grid-template-areas:"spd spd" "alt rest" "sub sub" "info info";grid-template-rows:auto auto auto 1fr;align-content:start}
+  #s-spd .val{font-size:92px}
+  .tag{display:none}
+  #s-alt{padding-bottom:0}
+  #s-alt .val,#s-rest .val{font-size:54px}
+  .sub{margin-top:6px;padding-top:5px;font-size:20px}
+  .sub b{font-size:34px}
+  .info{font-size:19px;margin-top:5px;padding-top:5px}
+  .panel{left:calc(env(safe-area-inset-left,0px) + 354px);right:calc(env(safe-area-inset-right,0px) + 6px);
+    bottom:calc(env(safe-area-inset-bottom,0px) + 6px);padding:6px 8px}
+  #profile{height:62px}
+  .ptitle{padding-bottom:2px;font-size:18px}
+  .btns{margin-top:6px}
+  .btns button{min-height:52px;font-size:18px}
+  body.big .btns button{min-height:58px}
+  .offtrack{top:calc(env(safe-area-inset-top,0px) + 8px);left:calc(50% + 177px)}
+  .fab{right:calc(env(safe-area-inset-right,0px) + 10px)}
+}
+
+/* Accueil */
+.welcome{position:fixed;inset:0;z-index:1500;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.25)}
+.welcome[hidden]{display:none}
+.card{background:var(--paper);color:var(--ink);border-radius:20px;padding:26px 22px 20px;max-width:360px;width:100%;border:1px solid var(--line)}
+.card h1{font-family:var(--num);font-weight:700;font-size:40px;line-height:1;margin:0 0 10px}
+.card p{margin:0 0 18px;line-height:1.45;color:var(--muted);font-size:20px}
+.card .filebtn{min-height:60px;font-size:21px}
+.card .link{margin-top:10px;width:100%;border:none;color:var(--muted);font-weight:400;text-decoration:underline;min-height:40px}
+.err{color:var(--warn);font-size:19px;margin-top:10px;min-height:1em}
+#actpick{z-index:1600;background:#14201A;flex-direction:column;justify-content:flex-end;align-items:stretch;padding:0;overflow:hidden}
+#actpick .scene{position:absolute;left:0;right:0;top:0;width:100%;height:64%;display:block}
+#actpick .brand{position:absolute;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 34px);text-align:center;color:#F3F5F2}
+#actpick .brand h1{font-family:var(--num);font-weight:700;font-size:72px;line-height:1;margin:0;letter-spacing:.01em;text-shadow:0 2px 12px rgba(0,0,0,.45)}
+#actpick .brand p{margin:6px 0 0;font-size:20px;font-weight:600;color:#CFE0D6;text-shadow:0 1px 6px rgba(0,0,0,.5)}
+#actpick .card{position:relative;max-width:none;border-radius:24px 24px 0 0;border:none;
+  padding:20px 20px calc(env(safe-area-inset-bottom,0px) + 18px);box-shadow:0 -6px 24px rgba(0,0,0,.35)}
+#actpick .card > p{margin:0 0 14px;font-size:22px;font-weight:700;color:var(--ink)}
+#actpick .trail{stroke-dasharray:640;stroke-dashoffset:640;animation:draw 1.8s .2s ease-out forwards}
+#actpick .summit{opacity:0;animation:pop .4s 1.9s ease-out forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+@keyframes pop{to{opacity:1}}
+@media (prefers-reduced-motion: reduce){#actpick .trail{animation:none;stroke-dashoffset:0}#actpick .summit{animation:none;opacity:1}}
+@media (orientation: landscape) and (max-height: 540px){
+  #actpick{flex-direction:row;justify-content:flex-end;align-items:center}
+  #actpick .scene{height:100%;right:auto;width:calc(100% - min(460px,56vw) + 24px)}
+  #actpick .brand{top:calc(env(safe-area-inset-top,0px) + 16px);left:calc(env(safe-area-inset-left,0px) + 24px);right:auto;text-align:left}
+  #actpick .brand h1{font-size:60px}
+  #actpick .card{width:min(460px,56vw);max-height:100vh;overflow:auto;border-radius:24px 0 0 24px;
+    padding:16px calc(env(safe-area-inset-right,0px) + 16px) 16px 16px}
+  #actpick .acts{grid-template-columns:1fr}
+  #actpick .actbtn{min-height:64px}
+}
+#help{z-index:1700}
+.acts{display:grid;gap:10px}
+.actbtn{flex-direction:column;align-items:flex-start;gap:2px;width:100%;min-height:72px;padding:10px 16px;text-align:left;border-width:2px}
+.actbtn b{font-family:var(--num);font-size:34px;line-height:1}
+.actbtn small{font-weight:400;font-size:18px;color:var(--muted)}
+.actbtn[aria-pressed=true]{border-color:var(--vis)}
+@media (orientation: landscape) and (max-height: 540px){
+  #actpick .card{max-width:640px}
+  .acts{grid-template-columns:1fr 1fr 1fr}
+  .actbtn{min-height:96px}
+}
+
+.toast{position:fixed;z-index:2000;left:50%;bottom:calc(var(--panel-h) + 18px);transform:translateX(-50%);max-width:90vw;text-align:center;
+  background:var(--ink);color:var(--paper);padding:12px 18px;border-radius:12px;font-size:21px;font-weight:600;opacity:0;transition:opacity .25s;pointer-events:none}
+.toast.on{opacity:1}
+
+/* Marqueurs */
+.me{background:none;border:none}
+.me-dot{width:28px;height:28px;position:relative}
+.me-dot::before{content:"";position:absolute;inset:6px;border-radius:50%;background:#16181D;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.me-arrow{position:absolute;inset:0;display:none}
+.me-arrow::before{content:"";position:absolute;left:50%;top:-7px;transform:translateX(-50%);
+  border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:11px solid #16181D}
+.wpt{background:none;border:none}
+.wpt div{width:12px;height:12px;border-radius:2px;background:#fff;border:3px solid #16181D;transform:rotate(45deg)}
+.dir{background:none;border:none}
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:19px;color:var(--muted);margin:2px 0 4px}
+.legend i{display:inline-block;width:18px;height:6px;border-radius:3px;margin-right:6px;vertical-align:middle}
+
+/* Menu */
+.sheet{position:fixed;inset:0;z-index:1400;background:rgba(0,0,0,.3);display:flex;align-items:flex-end}
+.sheet[hidden]{display:none}
+.sheet-card{background:var(--paper);width:100%;max-height:90vh;overflow:auto;border-radius:20px 20px 0 0;-webkit-overflow-scrolling:touch;
+  padding:12px 16px calc(env(safe-area-inset-bottom,0px) + 16px);border-top:1px solid var(--line)}
+@media (orientation: landscape) and (max-height: 540px){
+  .sheet{justify-content:center}
+  .sheet-card{max-width:560px;max-height:96vh;padding-left:calc(env(safe-area-inset-left,0px) + 16px)}
+}
+.sheet-head{display:flex;justify-content:space-between;align-items:center;position:sticky;top:-12px;background:var(--paper);padding:4px 0 6px;z-index:2}
+.sheet-head h2{font-family:var(--num);font-size:40px;margin:0}
+.sheet-head button{min-height:40px;border:none;color:var(--vis)}
+.sheet h3{font-size:23px;margin:18px 0 8px;padding-top:12px;border-top:1px solid var(--line)}
+.sheet h3:first-of-type{border-top:none;padding-top:0;margin-top:6px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px}
+.row.three{grid-template-columns:1fr 1fr 1fr}
+.opts{display:grid;gap:6px}
+.opt{display:flex;justify-content:space-between;align-items:center;gap:8px;text-align:left;width:100%;padding:8px 12px;min-height:48px}
+.opt small{color:var(--muted);font-weight:400;font-size:17px;white-space:nowrap}
+.opt[aria-pressed=true]{border:2px solid var(--vis)}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px}
+.seg.three{grid-template-columns:1fr 1fr 1fr}
+.seg button{min-height:58px;font-size:19px}
+.seg button[aria-pressed=true]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.hint{font-size:19px;color:var(--muted);margin:0 0 10px;line-height:1.45}
+.est{font-size:20px;margin:6px 0 10px;font-variant-numeric:tabular-nums}
+.bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:10px;display:none}
+.bar.on{display:block}
+.bar div{height:100%;width:0;background:var(--vis)}
+.stored{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:12px;font-size:19px}
+.stored button,.danger{color:var(--warn)}
+.lib{display:grid;gap:6px;margin-top:6px}
+.lib-row{display:grid;grid-template-columns:1fr 48px;gap:6px}
+.lib-row .opt span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sos{border:2px solid var(--warn);border-radius:14px;padding:10px 12px;margin-bottom:8px}
+.sos .big{font-family:var(--num);font-weight:700;font-size:38px;line-height:1.1;font-variant-numeric:tabular-nums;user-select:text;-webkit-user-select:text}
+.sos .small{font-size:19px;color:var(--muted);margin-top:4px}
+a.call{background:var(--warn);color:#fff;border-color:var(--warn)}
+.recinfo{font-size:20px;line-height:1.45;margin:0 0 8px}
+
+/* Verrouillage */
+.lock{position:fixed;inset:0;z-index:1900;touch-action:none;display:flex;align-items:flex-end;justify-content:center;
+  padding-bottom:calc(env(safe-area-inset-bottom,0px) + 14px)}
+.lock[hidden]{display:none}
+.unlock{position:relative;overflow:hidden;background:var(--ink);color:var(--paper);border:none;border-radius:999px;padding:0 24px;min-height:66px;font-size:21px;
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+body.big .unlock{min-height:80px;font-size:23px}
+.leaflet-tooltip{font-size:19px;font-weight:600}
+
+/* Panneau du bas escamotable */
+.panel{transition:transform .25s ease}
+body.nopanel .panel{transform:translateY(calc(100% + 30px));pointer-events:none}
+.handle{width:100%;min-height:30px;border:none;padding:0;margin:-6px 0 2px;color:var(--muted)}
+.handle svg,.fab svg{display:block}
+.fab{position:fixed;z-index:1000;right:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 14px);width:66px;height:66px;min-height:0;border-radius:50%;
+  background:var(--ink);color:var(--paper);border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35);display:none;padding:0}
+body.nopanel .fab{display:flex}
+body.big .fab{width:78px;height:78px}
+/* Chiffres en transparence sur la carte : texte foncé avec halo blanc, lisible sur tous les fonds */
+body.trans .hud{--ink:#0B120E;--muted:#1B2620;--line:rgba(0,0,0,.28);--warn:#B3261E;--soon:#8A4A00;color:var(--ink);
+  background:rgba(255,255,255,.22);border-color:transparent;backdrop-filter:none;-webkit-backdrop-filter:none;
+  text-shadow:0 0 2px #fff,0 0 3px #fff,0 0 6px #fff,0 0 10px rgba(255,255,255,.85)}
+body.trans .hud .lbl,body.trans .hud .sub,body.trans .hud .info{font-weight:600}
+body.trans.sun .hud{background:rgba(255,255,255,.45);text-shadow:0 0 2px #fff,0 0 3px #fff,0 0 4px #fff,0 0 8px #fff,0 0 12px #fff}
+/* Bulle « Reste à monter » affichée 5 s au toucher */
+.climbpop{position:fixed;z-index:1300;transform:translate(-50%,-50%);width:min(320px,86vw);text-align:center;
+  background:var(--panel);border:2px solid var(--ink);border-radius:20px;padding:14px 16px 16px;pointer-events:none;
+  box-shadow:0 4px 18px rgba(0,0,0,.3);opacity:0;transition:opacity .2s}
+.climbpop.on{opacity:1}
+.climbpop .k{font-size:22px;font-weight:600;color:var(--muted)}
+.climbpop .v{font-family:var(--num);font-weight:700;font-size:76px;line-height:1;font-variant-numeric:tabular-nums}
+.climbpop .v small{font-size:.45em;color:var(--muted);margin-left:4px}
+.climbpop .d{font-size:24px;font-weight:600;margin-top:4px}
+.climbpop .e{font-size:26px;font-weight:700;margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}
+.climbpop .s{font-size:21px;font-weight:600;color:var(--muted)}
+.climbpop .late{color:var(--warn)} .climbpop .soon{color:var(--soon)}
+/* Boussole / orientation de la carte */
+.compass{position:fixed;z-index:1000;right:12px;bottom:calc(var(--panel-h) + 8px);width:60px;height:60px;min-height:0;padding:0;border-radius:50%;
+  background:var(--paper);border:2px solid var(--line);box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.compass.on{border:3px solid var(--vis)}
+.compass svg{display:block;margin:auto}
+body.big .compass{width:72px;height:72px}
+.offtrack svg{vertical-align:middle;margin-right:8px}
+/* Résumé de sortie */
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px;margin:6px 0 16px}
+.stats div{display:flex;flex-direction:column}
+.stats span{font-size:19px;font-weight:600;color:var(--muted)}
+.stats b{font-family:var(--num);font-size:40px;line-height:1.05;font-variant-numeric:tabular-nums}
+.stats b small{font-size:.5em;color:var(--muted);margin-left:3px}
+#summary .card{max-height:92vh;overflow:auto}
+/* Météo */
+.wx{width:100%;border-collapse:collapse;font-family:var(--num);font-size:22px;font-variant-numeric:tabular-nums}
+.wx th{font-family:var(--txt);font-size:15px;color:var(--muted);font-weight:600;text-align:left;padding:2px 4px 4px}
+.wx td{padding:5px 4px;border-top:1px solid var(--line);white-space:nowrap}
+.wx .hot{color:var(--warn);font-weight:700}
+/* Mode d'emploi */
+#help .sheet-card{max-height:100vh;height:100%;border-radius:0}
+.help{font-size:20px;line-height:1.5}
+.help details{border-top:1px solid var(--line)}
+.help summary{font-size:22px;font-weight:700;padding:14px 4px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.help summary::-webkit-details-marker{display:none}
+.help summary::after{content:"+";font-size:30px;font-weight:400;color:var(--vis)}
+.help details[open] summary::after{content:"–"}
+.help .body{padding:0 4px 16px}
+.help p{margin:0 0 10px}
+.help ul{margin:0 0 10px;padding-left:22px}
+.help li{margin-bottom:6px}
+.help b{font-weight:700}
+.help .intro{font-size:20px;color:var(--muted);margin:4px 0 12px}
+/* HUD réduit : seulement vitesse, altitude, reste */
+body.compact .sub{display:none}
+@media (prefers-reduced-motion: reduce){.panel{transition:none}}
+.unlock .fill{position:absolute;inset:0;background:var(--vis);transform:scaleX(0);transform-origin:left}
+.unlock.holding .fill{transform:scaleX(1);transition:transform .9s linear}
+.unlock .t{position:relative}
+@media (prefers-reduced-motion: reduce){.toast{transition:none}}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<section class="hud" id="hud">
+  <div class="stat" id="s-spd"><span class="lbl">Vitesse</span><span class="val"><span id="spd">0</span><span class="unit">km/h</span></span></div>
+  <div class="stat" id="s-alt"><span class="lbl" id="alt-lbl">Altitude</span><span class="val"><span id="alt">–</span><span class="unit">m</span></span><span class="tag" id="alt-tag">en attente du GPS</span></div>
+  <div class="stat" id="s-rest"><span class="lbl" id="rest-lbl">Reste</span><span class="val"><span id="rest">–</span><span class="unit">km</span></span></div>
+  <div class="sub">
+    <span><i id="l-done">Fait</i><em><b id="done">0</b> <span id="u-done">km</span></em></span>
+    <span><i id="l-up">D+ restant</i><em><b id="uprest">–</b> m</em></span>
+    <span><i>Max</i><em><b id="vmax">0</b> km/h</em></span>
+  </div>
+</section>
+
+<div class="offtrack" id="offtrack" role="status"></div>
+<div class="climbpop" id="climbpop" aria-live="polite"><div class="k" id="cp-k"></div><div class="v" id="cp-v"></div><div class="d" id="cp-d"></div><div class="e" id="cp-e"></div><div class="s" id="cp-s"></div></div>
+<button class="compass" id="compass" aria-label="Orientation de la carte"><svg width="40" height="40" viewBox="0 0 40 40"><g id="needle" style="transform-origin:20px 20px"><path d="M20 3 L27 20 L13 20 Z" fill="#D7261E"/><path d="M20 37 L27 20 L13 20 Z" fill="#9AA6A0"/><circle cx="20" cy="20" r="3" fill="#16181D"/></g></svg></button>
+<button class="fab" id="show-panel" aria-label="Afficher les boutons"><svg width="34" height="34" viewBox="0 0 34 34" style="margin:auto"><path d="M7 21 L17 11 L27 21" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+
+<section class="panel" id="panel">
+  <button class="handle" id="hide-panel" aria-label="Masquer les boutons"><svg width="40" height="22" viewBox="0 0 40 22" style="margin:auto"><path d="M8 6 L20 16 L32 6" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+  <div class="ptitle"><span class="name" id="tname">Aucune trace</span><span class="meta" id="tmeta"></span></div>
+  <canvas id="profile" aria-label="Profil altimétrique de la trace"></canvas>
+  <div class="btns">
+    <button class="primary" id="go">Démarrer</button>
+    <button id="center">Centrer</button>
+    <button id="prof" class="tog">Profil</button>
+    <button id="lockb">Verrou</button>
+    <button id="menu">Menu</button>
+  </div>
+</section>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-card" role="dialog" aria-labelledby="sheet-t">
+    <div class="sheet-head"><h2 id="sheet-t">Menu</h2><button id="sheet-close">Fermer</button></div>
+    <button id="help-open" style="width:100%;margin-top:4px">Mode d’emploi</button>
+
+    <h3>Secours</h3>
+    <div class="sos">
+      <div class="big" id="sos-dd">Position inconnue</div>
+      <div class="small" id="sos-dms"></div>
+      <div class="small" id="sos-meta"></div>
+    </div>
+    <a class="filebtn call" href="tel:112" style="margin-bottom:6px">Appeler le 112</a>
+    <div class="row">
+      <button id="sos-sms">SMS avec ma position</button>
+      <button id="sos-share">Partager ma position</button>
+    </div>
+
+    <h3>Activité</h3>
+    <div class="seg three" id="seg-act">
+      <button data-v="vtt">VTT</button>
+      <button data-v="rando">Randonnée</button>
+      <button data-v="ski">Ski de rando</button>
+    </div>
+    <p class="hint" id="act-hint"></p>
+
+    <h3>Annonces vocales</h3>
+    <div class="seg" id="seg-voice">
+      <button data-v="1">Activées</button>
+      <button data-v="0">Coupées</button>
+    </div>
+    <p class="hint">Montées, hors trace, points de passage, tous les 5 km et risque d’arriver de nuit. Monte le volume du téléphone.</p>
+    <button id="voice-test" style="width:100%">Tester la voix</button>
+
+    <h3>Météo</h3>
+    <div id="wx"><p class="hint">Ouverture du menu…</p></div>
+    <button id="wx-reload" style="width:100%;margin-top:8px">Actualiser la météo</button>
+
+    <h3>Mes traces</h3>
+    <div class="row">
+      <label class="filebtn primary">Ouvrir un GPX<input type="file" id="file2" accept=".gpx,application/gpx+xml,application/xml,text/xml"></label>
+      <button id="rev">Inverser le sens</button>
+    </div>
+    <button id="notrack" style="width:100%;margin-bottom:6px">Rouler sans trace</button>
+    <div class="lib" id="lib"></div>
+
+    <h3>Ma sortie</h3>
+    <p class="recinfo" id="rec-info"></p>
+    <div class="row">
+      <button id="rec-export">Exporter en GPX</button>
+      <button id="rec-reset" class="danger">Nouvelle sortie</button>
+    </div>
+    <button class="primary" id="rec-end" style="width:100%">Terminer la sortie</button>
+
+    <h3>Fond de carte</h3>
+    <div class="opts" id="layer-list"></div>
+    <div id="ov-sec">
+    <h3>Pentes du terrain</h3>
+    <div class="seg" id="seg-ov">
+      <button data-v="off">Masquer</button>
+      <button data-v="on">Afficher</button>
+    </div>
+    <p class="hint">Inclinaison du terrain à partir de 30°, du jaune au violet (IGN en France, swisstopo en Suisse). À utiliser pour le risque d’avalanche, avec le bulletin du jour.</p>
+    <h3>Bulletin d’avalanche</h3>
+    <div class="row">
+      <a class="filebtn" href="https://meteofrance.com/meteo-montagne" target="_blank" rel="noopener">France (Météo-France)</a>
+      <a class="filebtn" href="https://www.slf.ch/fr/" target="_blank" rel="noopener">Suisse (SLF)</a>
+    </div>
+    </div>
+
+    <h3>Couleur de la trace</h3>
+    <div class="seg" id="seg-color">
+      <button data-v="slope">Selon la pente</button>
+      <button data-v="plain">Unie</button>
+    </div>
+    <div class="legend" id="legend"></div>
+
+    <h3>Télécharger pour le hors ligne</h3>
+    <p class="hint" id="dl-hint"></p>
+    <div class="seg" id="seg-zone">
+      <button data-v="trace">Autour de la trace</button>
+      <button data-v="view">Zone affichée</button>
+    </div>
+    <div class="seg" id="seg-detail">
+      <button data-v="std">Standard</button>
+      <button data-v="max">Détaillé</button>
+    </div>
+    <p class="est" id="dl-est"></p>
+    <button class="primary" id="dl-go" style="width:100%;min-height:50px">Télécharger</button>
+    <div class="bar" id="dl-bar"><div></div></div>
+    <p class="hint" id="dl-status" style="margin-top:8px"></p>
+    <div class="stored"><span id="st-info">Aucune carte enregistrée</span><button id="dl-clear">Tout supprimer</button></div>
+
+    <h3>Affichage</h3>
+    <div class="seg" id="seg-big">
+      <button data-v="0">Boutons normaux</button>
+      <button data-v="1">Grands boutons</button>
+    </div>
+    <div class="seg" id="seg-trans">
+      <button data-v="1">Chiffres transparents</button>
+      <button data-v="0">Chiffres sur fond</button>
+    </div>
+    <div class="seg" id="seg-compact">
+      <button data-v="0">Avec Fait, D+, Max</button>
+      <button data-v="1">Sans Fait, D+, Max</button>
+    </div>
+    <div class="seg" id="seg-sun">
+      <button data-v="0">Contraste normal</button>
+      <button data-v="1">Plein soleil</button>
+    </div>
+  </div>
+</div>
+
+<div class="welcome" id="actpick">
+  <svg class="scene" viewBox="0 0 400 300" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+    <defs>
+      <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0F1813"/><stop offset="1" stop-color="#264034"/></linearGradient>
+    </defs>
+    <rect width="400" height="300" fill="url(#sky)"/>
+    <g fill="#F3F5F2" opacity=".55"><circle cx="40" cy="40" r="1.2"/><circle cx="92" cy="22" r="1"/><circle cx="150" cy="58" r="1.1"/><circle cx="318" cy="30" r="1.3"/><circle cx="360" cy="70" r="1"/><circle cx="258" cy="16" r="1"/></g>
+    <path d="M0 230 L60 170 L105 205 L170 130 L230 190 L290 140 L350 185 L400 160 L400 300 L0 300 Z" fill="#2C4A3C"/>
+    <path d="M-10 300 L150 112 L205 178 L250 128 L410 300 Z" fill="#3F6B56"/>
+    <path d="M150 112 L132 134 L146 131 L157 140 L167 131 Z" fill="#F3F5F2"/>
+    <path d="M250 128 L236 145 L249 142 L262 147 Z" fill="#F3F5F2"/>
+    <path class="trail" d="M70 292 L118 252 L104 228 L148 206 L134 184 L176 156 L206 118" fill="none" stroke="#F0561D" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    <g class="summit"><circle cx="206" cy="118" r="9" fill="#fff" stroke="#F0561D" stroke-width="4"/></g>
+  </svg>
+  <div class="brand"><h1>Traces</h1><p>VTT, randonnée, ski de rando</p></div>
+  <div class="card">
+    <p>Quelle activité aujourd’hui ?</p>
+    <div class="acts">
+      <button class="actbtn" data-v="vtt"><b>VTT</b><small>Pente de la trace en %, vitesse</small></button>
+      <button class="actbtn" data-v="rando"><b>Randonnée</b><small>Pente en %, temps de marche</small></button>
+      <button class="actbtn" data-v="ski"><b>Ski de rando</b><small>Pente en degrés, pentes du terrain</small></button>
+    </div>
+    <button class="link" id="help-open2" style="margin-top:14px;width:100%;border:none;text-decoration:underline;color:var(--muted)">Mode d’emploi</button>
+  </div>
+</div>
+
+<div class="welcome" id="welcome" hidden>
+  <div class="card">
+    <h1>Traces</h1>
+    <p>Charge un fichier GPX depuis Fichiers, iCloud Drive ou un mail. La trace s’affiche avec son profil, puis lance le suivi pour voir ta vitesse et ton altitude.</p>
+    <label class="filebtn primary">Ouvrir un GPX<input type="file" id="file1" accept=".gpx,application/gpx+xml,application/xml,text/xml"></label>
+    <button class="link" id="nogpx">Enregistrer sans trace</button>
+    <div class="err" id="err"></div>
+  </div>
+</div>
+
+<div class="welcome" id="summary" hidden>
+  <div class="card">
+    <h1>Sortie terminée</h1>
+    <div class="stats" id="sum-stats"></div>
+    <div class="row">
+      <button id="sum-export">Exporter en GPX</button>
+      <button class="primary" id="sum-close">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<div class="sheet" id="help" hidden>
+  <div class="sheet-card help" role="dialog" aria-labelledby="help-t">
+    <div class="sheet-head"><h2 id="help-t">Mode d’emploi</h2><button id="help-close">Fermer</button></div>
+    <p class="intro">Touche un titre pour l’ouvrir.</p>
+
+    <details><summary>1. Installer l’app</summary><div class="body">
+      <p>Ouvre l’adresse de l’app dans <b>Safari</b>, puis <b>Partager</b> et <b>Sur l’écran d’accueil</b>. L’app s’ouvre alors en plein écran, comme une vraie application.</p>
+      <p>Au premier <b>Démarrer</b>, autorise la <b>localisation</b>. Dans les Réglages de l’iPhone, Service de localisation, Sites web Safari, choisis « Lorsque l’app est active » et active <b>Position exacte</b>.</p>
+      <p>Ouvre l’app une première fois avec du réseau : elle s’enregistre pour pouvoir ensuite fonctionner sans réseau.</p>
+    </div></details>
+
+    <details><summary>2. Choisir l’activité</summary><div class="body">
+      <p>À chaque ouverture, choisis <b>VTT</b>, <b>Randonnée</b> ou <b>Ski de rando</b>. Ce choix règle les couleurs de pente, le calcul de la durée et, en ski, l’affichage des pentes du terrain.</p>
+      <p>Tu peux changer en cours de route dans <b>Menu</b>, Activité.</p>
+    </div></details>
+
+    <details><summary>3. Charger une trace ou rouler sans trace</summary><div class="body">
+      <p><b>Ouvrir un GPX</b> : choisis le fichier dans Fichiers, iCloud Drive ou une pièce jointe de mail. La trace s’affiche avec son profil.</p>
+      <p>Les traces ouvertes sont gardées dans <b>Menu, Mes traces</b>. Touche une trace pour la reprendre, la croix pour la supprimer. <b>Inverser le sens</b> fait parcourir la trace à l’envers.</p>
+      <p><b>Rouler sans trace</b> : ton parcours s’enregistre et l’écran affiche la distance parcourue, le temps en mouvement et le D+.</p>
+    </div></details>
+
+    <details><summary>4. Démarrer le suivi</summary><div class="body">
+      <p>Appuie sur <b>Démarrer</b>. L’écran reste allumé pendant le suivi : c’est indispensable, car l’iPhone coupe le GPS des apps web quand l’écran se verrouille.</p>
+      <p><b>Pause</b> arrête le GPS, <b>Reprendre</b> le relance. Ta sortie continue de s’enregistrer au même endroit.</p>
+    </div></details>
+
+    <details><summary>5. Lire l’écran</summary><div class="body">
+      <ul>
+        <li><b>Vitesse</b> en km/h, mesurée par le GPS.</li>
+        <li><b>Altitude</b> : celle du GPS, ou celle de la trace si le GPS ne la donne pas. La mention sous le chiffre indique laquelle.</li>
+        <li><b>Reste</b> : kilomètres restants jusqu’à la fin de la trace (sans trace : <b>Distance</b> parcourue).</li>
+        <li><b>Fait</b>, <b>D+ restant</b> et vitesse <b>Max</b> sur la ligne du dessous.</li>
+      </ul>
+      <p>Les chiffres sont posés en transparence sur la carte. Pour les mettre sur fond ou n’afficher que l’essentiel, va dans Menu, Affichage.</p>
+    </div></details>
+
+    <details><summary>6. Toucher l’écran</summary><div class="body">
+      <p>Touche la <b>carte</b> ou les <b>chiffres</b> : une grande bulle s’affiche 5 secondes avec :</p>
+      <ul>
+        <li>le <b>reste à monter</b> dans la montée en cours, ou la prochaine montée ;</li>
+        <li>l’<b>heure d’arrivée</b> estimée, en orange ou en rouge si tu risques d’arriver de nuit ;</li>
+        <li>l’heure du <b>coucher du soleil</b>.</li>
+      </ul>
+    </div></details>
+
+    <details><summary>7. Les boutons du bas</summary><div class="body">
+      <ul>
+        <li><b>Démarrer / Pause</b> : lance ou arrête le suivi.</li>
+        <li><b>Centrer</b> : recentre la carte sur toi après l’avoir déplacée.</li>
+        <li><b>Profil</b> : affiche ou masque le profil d’altitude.</li>
+        <li><b>Verrou</b> : bloque l’écran contre les appuis involontaires. Pour l’ouvrir, <b>maintiens</b> le bouton du bas une seconde.</li>
+        <li><b>Menu</b> : tous les réglages.</li>
+      </ul>
+      <p>La <b>flèche ⌄</b> en haut du panneau le fait disparaître pour libérer la carte. Le <b>bouton rond ⌃</b> en bas à droite le fait revenir.</p>
+    </div></details>
+
+    <details><summary>8. La carte</summary><div class="body">
+      <ul>
+        <li>La trace est <b>colorée selon la pente</b> : vert, bleu, orange puis rouge quand ça monte ou descend fort. Les seuils dépendent de l’activité : VTT 5, 8 et 12 % ; randonnée 10, 20 et 30 % ; ski 15, 22 et 30°. La légende est dans le Menu.</li>
+        <li>Les petites <b>flèches</b> blanches indiquent le sens de parcours.</li>
+        <li>Ton parcours réel se dessine en <b>bleu foncé</b>.</li>
+        <li>Si tu sors de la trace, un bandeau rouge indique la direction et la distance, et une <b>ligne rouge pointillée</b> te relie au point le plus proche.</li>
+        <li>Le <b>bouton boussole</b> (à droite) met ton sens de marche en haut de la carte. Touche-le encore pour revenir au nord en haut.</li>
+      </ul>
+    </div></details>
+
+    <details><summary>9. Les annonces vocales</summary><div class="body">
+      <p>Pendant le suivi, l’app annonce :</p>
+      <ul>
+        <li>les <b>montées</b> 500 m avant, à mi-montée et 150 m avant le sommet ;</li>
+        <li>les <b>passages à plus de 30 %</b>, 150 m avant, en montée comme en descente ;</li>
+        <li>le <b>hors trace</b>, chaque minute, puis le retour sur la trace ;</li>
+        <li>les <b>points du GPX</b> (refuge, source…) à 1 km puis sur place ;</li>
+        <li>la distance <b>tous les 5 km</b> ;</li>
+        <li>le risque d’<b>arriver après le coucher du soleil</b>.</li>
+      </ul>
+      <p>Monte le volume du téléphone. <b>Tester la voix</b> et la coupure des annonces sont dans le Menu.</p>
+    </div></details>
+
+    <details><summary>10. Cartes sans réseau</summary><div class="body">
+      <p>Avant de partir, dans <b>Menu, Télécharger pour le hors ligne</b> :</p>
+      <ul>
+        <li>choisis le <b>fond de carte</b> (Plan IGN en France, Swisstopo en Suisse, OpenTopoMap ailleurs) ;</li>
+        <li>choisis <b>Autour de la trace</b> ou <b>Zone affichée</b>, puis <b>Standard</b> ou <b>Détaillé</b> ;</li>
+        <li>appuie sur <b>Télécharger</b> et attends la fin de la barre.</li>
+      </ul>
+      <p>Sans réseau, le zoom est limité au niveau téléchargé. OpenStreetMap ne peut pas être téléchargé.</p>
+    </div></details>
+
+    <details><summary>11. Ski de randonnée</summary><div class="body">
+      <p>En ski, la carte peut afficher les <b>pentes du terrain</b> à partir de 30° : jaune, orange, rouge puis violet. Regarde aussi les pentes <b>au-dessus</b> de ta trace.</p>
+      <p>Les boutons <b>Bulletin d’avalanche</b> ouvrent Météo-France et le SLF. La carte des pentes ne remplace ni le bulletin ni ton jugement sur place.</p>
+    </div></details>
+
+    <details><summary>12. Météo</summary><div class="body">
+      <p>Dans le Menu : prévisions de 2 h en 2 h au départ et au sommet de la trace, avec la pluie, le vent et ses rafales, et l’isotherme 0 °C en ski. Les valeurs à surveiller sont en rouge. Il faut du réseau.</p>
+    </div></details>
+
+    <details><summary>13. Secours</summary><div class="body">
+      <p>En haut du Menu : tes <b>coordonnées</b> en grand, le bouton <b>Appeler le 112</b>, l’envoi de ta position par <b>SMS</b> et le <b>partage</b> de ta position.</p>
+    </div></details>
+
+    <details><summary>14. Fin de sortie et export</summary><div class="body">
+      <p><b>Menu, Ma sortie, Terminer la sortie</b> affiche le résumé : distance, D+, durées, moyenne, vitesse max et part de la trace suivie.</p>
+      <p><b>Exporter en GPX</b> permet d’enregistrer la sortie dans Fichiers, de l’envoyer ou de l’importer dans Garmin Connect. <b>Nouvelle sortie</b> efface l’enregistrement : exporte-le avant.</p>
+    </div></details>
+
+    <details><summary>15. Affichage</summary><div class="body">
+      <ul>
+        <li><b>Grands boutons</b> : pour les gants.</li>
+        <li><b>Plein soleil</b> : contraste maximal.</li>
+        <li><b>Chiffres transparents ou sur fond</b>.</li>
+        <li><b>Avec ou sans Fait, D+, Max</b> : pour n’afficher que l’essentiel.</li>
+      </ul>
+      <p>En paysage, les chiffres passent à gauche et la carte à droite, idéal sur le guidon.</p>
+    </div></details>
+
+    <details><summary>16. Conseils et limites</summary><div class="body">
+      <ul>
+        <li>L’écran allumé consomme de la batterie : prévois une <b>batterie externe</b> pour les longues sorties.</li>
+        <li>Le GPS met 10 à 30 secondes à bien se caler en extérieur, surtout pour l’altitude.</li>
+        <li>L’altitude du GPS est approximative, à quelques dizaines de mètres près.</li>
+        <li>En forêt dense ou en gorge, la vitesse et la position sont moins précises.</li>
+        <li>Un iPad uniquement Wi-Fi n’a pas de GPS : utilise l’iPhone pour rouler.</li>
+      </ul>
+    </div></details>
+  </div>
+</div>
+
+<div class="lock" id="lock" hidden>
+  <button class="unlock" id="unlock"><span class="fill"></span><span class="t">Écran verrouillé, maintiens pour ouvrir</span></button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const R = 6371008.8, rad = d => d * Math.PI / 180, deg = r => r * 180 / Math.PI;
+const fr = (v, d = 0) => v.toLocaleString('fr-FR', {minimumFractionDigits: d, maximumFractionDigits: d});
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const store = {
+  get(k, d){ try { const v = localStorage.getItem(k); return v == null ? d : v; } catch(e){ return d; } },
+  set(k, v){ try { localStorage.setItem(k, v); } catch(e){} },
+  del(k){ try { localStorage.removeItem(k); } catch(e){} }
+};
+const cssv = n => getComputedStyle(document.body).getPropertyValue(n).trim();
+function hav(a, b){
+  const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
+  const h = Math.sin(dLat/2)**2 + Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLon/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+const km = d => d < 1000 ? `${fr(Math.round(d / 10) * 10)} m` : `${fr(d / 1000, 1)} km`;
+const hm = d => `${d.getHours()} h ${String(d.getMinutes()).padStart(2, '0')}`;
+function dur(h){ let H = Math.floor(h), M = Math.round((h - H) * 60); if (M === 60){ H++; M = 0; } return H ? `${H} h ${String(M).padStart(2, '0')}` : `${M} min`; }
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- Activités ---------- */
+// Temps de parcours façon DIN 33466 : max(plat, vertical) + min/2
+const ACTS = {
+  vtt:   {name:'VTT',          flat:15, up:500, down:2000, minGain:40, moveSpd:1.2, unit:'%', slopes:[5, 8, 12],
+          hint:'Pente de la trace en %. Durée estimée sur 15 km/h à plat et 500 m de D+ par heure, puis ajustée à ton rythme réel.'},
+  rando: {name:'Randonnée',    flat:4,  up:300, down:500,  minGain:50, moveSpd:0.4, unit:'%', slopes:[10, 20, 30],
+          hint:'Pente de la trace en %. Durée estimée sur 4 km/h à plat, 300 m de montée et 500 m de descente par heure, puis ajustée à ton rythme réel.'},
+  ski:   {name:'Ski de rando', flat:4,  up:350, down:1500, minGain:50, moveSpd:0.4, unit:'°', slopes:[15, 22, 30],
+          hint:'Pente de la trace en degrés. Durée estimée sur 350 m de montée par heure, puis ajustée à ton rythme réel. La pente de la trace ne remplace pas celle du terrain.'}
+};
+const COLORS = ['#2E9E4F', '#1F6FD1', '#F08A00', '#D7261E'];
+let act = store.get('tvtt-act', 'vtt'); if (!ACTS[act]) act = 'vtt';
+const A = () => ACTS[act];
+const slopeVal = g => A().unit === '°' ? deg(Math.atan(Math.abs(g) / 100)) : Math.abs(g);
+const slopeClass = g => { const v = slopeVal(g), t = A().slopes; return v < t[0] ? 0 : v < t[1] ? 1 : v < t[2] ? 2 : 3; };
+const slopeTxt = g => A().unit === '°' ? `${fr(slopeVal(g))}°` : `${fr(Math.abs(g))} %`;
+function legendLabels(){
+  const t = A().slopes, u = A().unit === '°' ? '°' : ' %';
+  return [`moins de ${t[0]}${u}`, `${t[0]} à ${t[1]}${u}`, `${t[1]} à ${t[2]}${u}`, `${t[2]}${u} et plus`];
+}
+
+/* ---------- Carte ---------- */
+const layers = [
+  {name:'OpenTopoMap', zone:'Monde, relief', url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', sub:'abc', maxZoom:17, dlStd:14, dlMax:15, kb:30, attr:'© OpenStreetMap, SRTM, OpenTopoMap'},
+  {name:'Plan IGN', zone:'France', url:'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/png', maxZoom:19, dlStd:15, dlMax:16, kb:25, attr:'© IGN Géoplateforme'},
+  {name:'Swisstopo', zone:'Suisse', url:'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', maxZoom:19, dlStd:15, dlMax:16, kb:35, attr:'© swisstopo'},
+  {name:'OpenStreetMap', zone:'Monde, en ligne seulement', url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png', maxZoom:19, dlStd:0, dlMax:0, kb:20, attr:'© OpenStreetMap'}
+];
+layers.forEach(d => d.l = L.tileLayer(d.url, {maxZoom:d.maxZoom, subdomains:d.sub || 'abc', attribution:d.attr}));
+const overlays = [
+  {url:'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=GEOGRAPHICALGRIDSYSTEMS.SLOPES.MOUNTAIN&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/png', maxNative:17, kb:8, attr:'Pentes © IGN'},
+  {url:'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.hangneigung-ueber_30/default/current/3857/{z}/{x}/{y}.png', maxNative:17, kb:8, attr:'Pentes © swisstopo'}
+];
+overlays.forEach(o => o.l = L.tileLayer(o.url, {maxZoom:19, maxNativeZoom:o.maxNative, opacity:.55, attribution:o.attr}));
+
+let layerIdx = +store.get('tvtt-layer', 0) % layers.length;
+let ovOn = act === 'ski' && store.get('tvtt-ov-ski', 'on') === 'on';
+const map = L.map('map', {zoomControl:false, attributionControl:false, rotate:true, touchRotate:false, rotateControl:false, bearing:0}).setView([45.67, 6.39], 11);
+L.control.attribution({position:'bottomleft'}).addTo(map);
+layers[layerIdx].l.addTo(map);
+const lay = () => layers[layerIdx];
+function applyOverlay(){ overlays.forEach(o => ovOn ? o.l.addTo(map) : map.removeLayer(o.l)); }
+applyOverlay();
+
+const isLand = () => matchMedia('(orientation: landscape) and (max-height: 540px)').matches;
+function visRect(){
+  const W = innerWidth, H = innerHeight, hud = $('hud').getBoundingClientRect();
+  const pan = document.body.classList.contains('nopanel') ? {top:H} : $('panel').getBoundingClientRect();
+  return isLand() ? {l:hud.right + 8, t:0, r:W, b:pan.top - 4} : {l:0, t:hud.bottom + 8, r:W, b:pan.top - 4};
+}
+function fitPad(){ const v = visRect(); return {paddingTopLeft:[v.l + 16, v.t + 16], paddingBottomRight:[innerWidth - v.r + 16, innerHeight - v.b + 16]}; }
+function showAt(ll, zoom){
+  if (zoom != null && zoom !== map.getZoom()) map.setView(ll, zoom, {animate:false});
+  const v = visRect(), P = L.point((v.l + v.r) / 2, (v.t + v.b) / 2), C = map.getSize().divideBy(2);
+  const pt = map.latLngToContainerPoint(ll);
+  map.panTo(map.containerPointToLatLng(C.add(pt.subtract(P))), {animate:true, duration:.5});
+}
+
+/* ---------- Trace ---------- */
+let T = null, trackRec = null, lastIdx = null, trackLine = null;
+const trackGroup = L.layerGroup().addTo(map), wptLayer = L.layerGroup().addTo(map);
+let colorMode = store.get('tvtt-color', 'slope');
+
+function parseGPX(text){
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  if (doc.getElementsByTagName('parsererror').length) throw new Error('Ce fichier n’est pas un GPX lisible.');
+  let nodes = [...doc.getElementsByTagName('trkpt')];
+  if (nodes.length < 2) nodes = [...doc.getElementsByTagName('rtept')];
+  const pts = nodes.map(n => {
+    const e = n.getElementsByTagName('ele')[0];
+    return {lat:+n.getAttribute('lat'), lon:+n.getAttribute('lon'), ele: e ? parseFloat(e.textContent) : NaN};
+  }).filter(p => isFinite(p.lat) && isFinite(p.lon));
+  if (pts.length < 2) throw new Error('Aucune trace trouvée dans ce fichier.');
+  const wpts = [...doc.getElementsByTagName('wpt')].map(w => ({
+    lat:+w.getAttribute('lat'), lon:+w.getAttribute('lon'),
+    name:((w.getElementsByTagName('name')[0] || {}).textContent || '').trim()
+  })).filter(p => isFinite(p.lat) && isFinite(p.lon));
+  const nameEl = doc.querySelector('trk > name') || doc.querySelector('rte > name') || doc.querySelector('metadata > name');
+  return {pts, wpts, name:(nameEl && nameEl.textContent.trim()) || ''};
+}
+
+function buildTrack(pts, wpts, name){
+  const hasEle = pts.some(p => isFinite(p.ele));
+  let prev = pts.find(p => isFinite(p.ele))?.ele ?? 0;
+  pts = pts.map(p => { if (isFinite(p.ele)) prev = p.ele; return {lat:p.lat, lon:p.lon, ele:prev}; });
+  const n = pts.length, cum = [0], cumUp = [0], cumDown = [0];
+  let ref = pts[0].ele, up = 0, down = 0;
+  for (let i = 1; i < n; i++){
+    cum.push(cum[i-1] + hav(pts[i-1], pts[i]));
+    const d = pts[i].ele - ref;              // hystérésis 3 m contre le bruit
+    if (d > 3){ up += d; ref = pts[i].ele; } else if (d < -3){ down -= d; ref = pts[i].ele; }
+    cumUp.push(up); cumDown.push(down);
+  }
+  // Pente lissée sur 100 m glissants
+  const grade = new Array(n).fill(0);
+  if (hasEle){
+    let a = 0, b = 0;
+    for (let i = 0; i < n; i++){
+      while (a < i && cum[i] - cum[a] > 50) a++;
+      while (b < n - 1 && cum[b] - cum[i] < 50) b++;
+      const dd = cum[b] - cum[a];
+      grade[i] = dd > 15 ? (pts[b].ele - pts[a].ele) / dd * 100 : 0;
+    }
+  }
+  const eles = pts.map(p => p.ele);
+  const t = {pts, wpts, name, cum, cumUp, cumDown, grade, total:cum[n-1], up, down, hasEle,
+    minE:eles.reduce((m, e) => Math.min(m, e), Infinity), maxE:eles.reduce((m, e) => Math.max(m, e), -Infinity)};
+  // Position des points GPX le long de la trace
+  t.wptA = wpts.map(w => { const p = project(t, w.lat, w.lon, 0, n - 1); return {...w, along:p.along, d:p.d}; })
+    .filter(w => w.d < 200).sort((a, b) => a.along - b.along);
+  t.climbs = findClimbs(t);
+  t.steep = findSteep(t);
+  return t;
+}
+
+// Passages raides : pente ≥ 30 % sur au moins 25 m, mesurée sur 40 m glissants pour attraper les courts raidillons
+const STEEP = 30;
+function findSteep(t){
+  const out = [], P = t.pts, C = t.cum, n = P.length;
+  if (!t.hasEle) return out;
+  let a = 0, b = 0, cur = null;
+  for (let i = 0; i < n; i++){
+    while (a < i && C[i] - C[a] > 20) a++;
+    while (b < n - 1 && C[b] - C[i] < 20) b++;
+    const dd = C[b] - C[a], g = dd > 10 ? (P[b].ele - P[a].ele) / dd * 100 : 0;
+    if (Math.abs(g) >= STEEP){
+      const dir = g > 0 ? 1 : -1;
+      if (cur && cur.dir === dir && C[i] - cur.e < 30){ cur.e = Math.max(cur.e, C[b]); cur.max = Math.max(cur.max, Math.abs(g)); }
+      else { if (cur) out.push(cur); cur = {s:C[i], e:C[b], max:Math.abs(g), dir}; }
+    }
+  }
+  if (cur) out.push(cur);
+  return out.filter(x => x.e - x.s >= 25);
+}
+// Montées notables : gain mini selon l'activité, petites descentes tolérées (20 m)
+function findClimbs(t){
+  const out = [], P = t.pts, tol = 20, minGain = A().minGain;
+  if (!t.hasEle) return out;
+  let s = 0, m = 0;
+  for (let i = 1; i < P.length; i++){
+    const e = P[i].ele;
+    if (e > P[m].ele) m = i;
+    if (P[m].ele - e > tol){
+      if (P[m].ele - P[s].ele >= minGain) out.push({i0:s, i1:m});
+      s = i; m = i;
+    } else if (m === s && e < P[s].ele){ s = i; m = i; }
+  }
+  if (P[m].ele - P[s].ele >= minGain) out.push({i0:s, i1:m});
+  return out;
+}
+
+function project(t, lat, lon, a, b){
+  const ky = R * Math.PI / 180, kx = ky * Math.cos(rad(lat));
+  let best = {d:Infinity, i:0, t:0};
+  for (let i = a; i < b; i++){
+    const p = t.pts[i], q = t.pts[i+1];
+    const ax = (p.lon-lon)*kx, ay = (p.lat-lat)*ky, dx = (q.lon-p.lon)*kx, dy = (q.lat-p.lat)*ky;
+    const L2 = dx*dx + dy*dy;
+    let u = L2 ? -(ax*dx + ay*dy) / L2 : 0; u = clamp(u, 0, 1);
+    const d = Math.hypot(ax + u*dx, ay + u*dy);
+    if (d < best.d) best = {d, i, t:u};
+  }
+  const j = Math.min(best.i + 1, t.pts.length - 1);
+  best.along = t.cum[best.i] + best.t * (t.cum[j] - t.cum[best.i]);
+  return best;
+}
+function nearest(lat, lon){
+  const n = T.pts.length;
+  let best = {d:Infinity};
+  if (lastIdx != null) best = project(T, lat, lon, Math.max(0, lastIdx - 150), Math.min(n - 1, lastIdx + 400));
+  if (best.d > 60){ const full = project(T, lat, lon, 0, n - 1); if (full.d < best.d - 20) best = full; }
+  lastIdx = best.i;
+  return best;
+}
+function idxAt(d){
+  let lo = 0, hi = T.cum.length - 1;
+  while (hi - lo > 1){ const m = (lo + hi) >> 1; if (T.cum[m] < d) lo = m; else hi = m; }
+  return lo;
+}
+function eleAt(d){
+  const lo = idxAt(d), hi = Math.min(lo + 1, T.cum.length - 1), seg = T.cum[hi] - T.cum[lo] || 1;
+  return T.pts[lo].ele + (d - T.cum[lo]) / seg * (T.pts[hi].ele - T.pts[lo].ele);
+}
+
+function bearing(a, b){
+  const y = Math.sin(rad(b.lon - a.lon)) * Math.cos(rad(b.lat));
+  const x = Math.cos(rad(a.lat))*Math.sin(rad(b.lat)) - Math.sin(rad(a.lat))*Math.cos(rad(b.lat))*Math.cos(rad(b.lon - a.lon));
+  return (deg(Math.atan2(y, x)) + 360) % 360;
+}
+function drawTrack(){
+  trackGroup.clearLayers();
+  if (!T) return;
+  const sun = document.body.classList.contains('sun'), w = sun ? 7 : 5;
+  const ll = T.pts.map(p => [p.lat, p.lon]);
+  L.polyline(ll, {color:'#fff', weight:w + 4, opacity:.9, interactive:false}).addTo(trackGroup);
+  if (colorMode !== 'slope' || !T.hasEle){
+    L.polyline(ll, {color:cssv('--track'), weight:w, opacity:1, interactive:false}).addTo(trackGroup);
+  } else {
+    let start = 0, cls = slopeClass(T.grade[0]);
+    for (let i = 1; i < T.pts.length; i++){
+      const c = i < T.pts.length - 1 ? slopeClass(T.grade[i]) : -1;
+      if (c !== cls){
+        L.polyline(ll.slice(start, i + 1), {color:COLORS[cls], weight:w, opacity:1, lineCap:'butt', interactive:false}).addTo(trackGroup);
+        start = i; cls = c;
+      }
+    }
+  }
+  // Flèches de sens de parcours
+  const step = clamp(T.total / 30, 150, 1000);
+  for (let d = step / 2; d < T.total; d += step){
+    const i = idxAt(d), a = T.pts[i], b = T.pts[Math.min(i + 1, T.pts.length - 1)];
+    const p = {lat:a.lat + (b.lat - a.lat) * ((d - T.cum[i]) / ((T.cum[i+1] - T.cum[i]) || 1)), lon:a.lon + (b.lon - a.lon) * ((d - T.cum[i]) / ((T.cum[i+1] - T.cum[i]) || 1))};
+    const r = bearing(a, b);
+    L.marker([p.lat, p.lon], {interactive:false, keyboard:false, icon:L.divIcon({className:'dir', iconSize:[16,16], iconAnchor:[8,8],
+      html:`<svg width="16" height="16" viewBox="0 0 16 16" style="transform:rotate(calc(${r}deg + var(--mb,0deg)))"><path d="M3 13 L8 2.5 L13 13 L8 10 Z" fill="#fff" stroke="#16181D" stroke-width="1.4" stroke-linejoin="round"/></svg>`})}).addTo(trackGroup);
+  }
+}
+
+function showTrack(fit){
+  lastIdx = null; alerted = new Set(); sess = null; resetVoice();
+  trackLine = L.polyline(T.pts.map(p => [p.lat, p.lon]));
+  drawTrack();
+  wptLayer.clearLayers();
+  T.wpts.forEach(w => L.marker([w.lat, w.lon], {icon:L.divIcon({className:'wpt', html:'<div></div>', iconSize:[12,12]})})
+    .bindTooltip(w.name || 'Point', {direction:'top'}).addTo(wptLayer));
+  const s = T.pts[0];
+  L.circleMarker([s.lat, s.lon], {radius:7, color:'#fff', weight:3, fillColor:'#2E9E4F', fillOpacity:1}).addTo(wptLayer).bindTooltip('Départ');
+  if (fit) map.fitBounds(trackLine.getBounds(), fitPad());
+  $('tname').textContent = T.name;
+  $('tmeta').textContent = `${fr(T.total/1000, 1)} km, D+ ${fr(Math.round(T.up))} m`;
+  $('rest').textContent = fr(T.total/1000, 1);
+  $('done').textContent = '0';
+  $('uprest').textContent = T.hasEle ? fr(Math.round(T.up)) : '–';
+  $('welcome').hidden = true;
+  setFreeMode(false);
+  lastAlong = null;
+  drawProfile(null); updateNav(null);
+}
+
+/* ---------- Bibliothèque de traces (IndexedDB) ---------- */
+const idb = (() => {
+  let dbp;
+  const open = () => dbp || (dbp = new Promise((res, rej) => {
+    const r = indexedDB.open('tracevtt', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('tracks', {keyPath:'id'});
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  }));
+  const tx = async (mode, fn) => {
+    const db = await open();
+    return new Promise((res, rej) => {
+      const t = db.transaction('tracks', mode), r = fn(t.objectStore('tracks'));
+      t.oncomplete = () => res(r && r.result); t.onerror = () => rej(t.error);
+    });
+  };
+  return {all:() => tx('readonly', s => s.getAll()), put:v => tx('readwrite', s => s.put(v)),
+          get:id => tx('readonly', s => s.get(id)), del:id => tx('readwrite', s => s.delete(id))};
+})();
+
+function openRec(rec, fit = true){
+  const g = parseGPX(rec.gpx);
+  let pts = g.pts;
+  if (store.get('tvtt-rev-' + rec.id, '0') === '1') pts = pts.slice().reverse();
+  T = buildTrack(pts, g.wpts, rec.name || g.name || 'Trace');
+  trackRec = rec;
+  store.set('tvtt-cur', rec.id);
+  showTrack(fit);
+}
+async function addFile(text, fileName){
+  const g = parseGPX(text);                          // valide le fichier
+  const tmp = buildTrack(g.pts, g.wpts, g.name);
+  const rec = {id:Date.now().toString(36), name:g.name || (fileName || 'Trace').replace(/\.gpx$/i, ''), gpx:text,
+    total:tmp.total, up:tmp.up, added:Date.now()};
+  try { await idb.put(rec); } catch(e){ toast('Trace ouverte, mais pas enregistrée dans la bibliothèque'); }
+  openRec(rec);
+  renderLib();
+}
+async function renderLib(){
+  const box = $('lib'); box.innerHTML = '';
+  let list = [];
+  try { list = (await idb.all()).sort((a, b) => b.added - a.added); } catch(e){}
+  if (!list.length){ box.innerHTML = '<p class="hint">Les traces que tu ouvres sont gardées ici.</p>'; return; }
+  list.forEach(r => {
+    const row = document.createElement('div'); row.className = 'lib-row';
+    const b = document.createElement('button'); b.className = 'opt';
+    b.setAttribute('aria-pressed', trackRec && trackRec.id === r.id);
+    b.innerHTML = `<span>${esc(r.name)}</span><small>${fr(r.total/1000, 1)} km, D+ ${fr(Math.round(r.up))} m</small>`;
+    b.onclick = () => { try { openRec(r); $('sheet').hidden = true; } catch(e){ toast(e.message); } };
+    const del = document.createElement('button'); del.className = 'danger'; del.textContent = '✕';
+    del.setAttribute('aria-label', 'Supprimer ' + r.name);
+    del.onclick = async () => {
+      if (!confirm(`Supprimer « ${r.name} » ?`)) return;
+      await idb.del(r.id); store.del('tvtt-rev-' + r.id);
+      renderLib();
+    };
+    row.append(b, del); box.appendChild(row);
+  });
+}
+
+function onFile(e){
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = async () => {
+    try { await addFile(r.result, f.name); $('sheet').hidden = true; toast('Trace chargée'); }
+    catch(err){ $('err').textContent = err.message; if (!T) $('welcome').hidden = false; else toast(err.message); }
+  };
+  r.readAsText(f);
+  e.target.value = '';
+}
+$('file1').addEventListener('change', onFile);
+$('file2').addEventListener('change', onFile);
+$('nogpx').addEventListener('click', () => { $('welcome').hidden = true; setFreeMode(true); toast('Appuie sur Démarrer pour enregistrer ton parcours', 4000); });
+$('notrack').addEventListener('click', () => {
+  T = null; trackRec = null; trackLine = null; lastAlong = null; lastIdx = null;
+  trackGroup.clearLayers(); wptLayer.clearLayers(); if (rejoinLine) rejoinLine.setLatLngs([]);
+  $('offtrack').classList.remove('on');
+  store.set('tvtt-cur', 'none');
+  setFreeMode(true); drawProfile(null);
+  $('sheet').hidden = true; toast('Sans trace : ton parcours s’enregistre avec Démarrer', 4000);
+});
+$('rev').addEventListener('click', () => {
+  if (!trackRec) return;
+  const k = 'tvtt-rev-' + trackRec.id;
+  store.set(k, store.get(k, '0') === '1' ? '0' : '1');
+  openRec(trackRec, false);
+  toast('Sens de parcours inversé');
+});
+
+/* ---------- Profil ---------- */
+const cv = $('profile'), ctx = cv.getContext('2d');
+function drawProfile(along){
+  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  if (!W) return;
+  cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = '600 17px Barlow, system-ui, sans-serif';
+  if (!T){ ctx.fillStyle = cssv('--muted'); ctx.fillText('Sans trace : ton parcours s’enregistre.', 4, H/2); return; }
+  if (!T.hasEle){ ctx.fillStyle = cssv('--muted'); ctx.fillText('Ce GPX ne contient pas d’altitudes.', 4, H/2); return; }
+  const padL = 50, padB = 20, padT = 6, w = W - padL - 4, h = H - padB - padT;
+  const span = Math.max(T.maxE - T.minE, 50), lo = T.minE - span*.05, hi = T.maxE + span*.08;
+  const X = d => padL + d / T.total * w, Y = e => padT + h - (e - lo) / (hi - lo) * h;
+  const step = Math.max(1, Math.floor(T.pts.length / (w * 2)));
+  const line = new Path2D();
+  line.moveTo(X(0), Y(T.pts[0].ele));
+  for (let i = step; i < T.pts.length; i += step) line.lineTo(X(T.cum[i]), Y(T.pts[i].ele));
+  line.lineTo(X(T.total), Y(T.pts[T.pts.length-1].ele));
+  const area = new Path2D(line);
+  area.lineTo(X(T.total), padT + h); area.lineTo(X(0), padT + h); area.closePath();
+  if (colorMode === 'slope'){
+    ctx.save(); ctx.clip(area); ctx.globalAlpha = .6;
+    let i = 0;
+    for (let x = padL; x < padL + w; x++){
+      const d = (x - padL) / w * T.total;
+      while (i < T.cum.length - 2 && T.cum[i+1] < d) i++;
+      ctx.fillStyle = COLORS[slopeClass(T.grade[i])]; ctx.fillRect(x, padT, 1.2, h);
+    }
+    ctx.restore();
+    ctx.strokeStyle = cssv('--ink'); ctx.globalAlpha = .6; ctx.lineWidth = 1.2; ctx.stroke(line); ctx.globalAlpha = 1;
+  } else {
+    ctx.fillStyle = cssv('--relief-soft'); ctx.fill(area);
+    ctx.strokeStyle = cssv('--relief'); ctx.lineWidth = 1.6; ctx.stroke(line);
+  }
+  if (along != null){
+    ctx.save(); ctx.globalAlpha = .55; ctx.fillStyle = cssv('--paper');
+    ctx.fillRect(padL, padT, X(along) - padL, h); ctx.restore();
+  }
+  ctx.fillStyle = cssv('--muted'); ctx.textBaseline = 'middle';
+  ctx.fillText(Math.round(T.maxE), 2, Y(T.maxE)); ctx.fillText(Math.round(T.minE), 2, Y(T.minE));
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText('0', padL, H - 2);
+  const end = fr(T.total/1000, 1) + ' km'; ctx.fillText(end, W - 4 - ctx.measureText(end).width, H - 2);
+  if (along != null){
+    const x = X(along), y = Y(eleAt(along));
+    ctx.strokeStyle = cssv('--ink'); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + h); ctx.stroke();
+    ctx.fillStyle = '#16181D'; ctx.beginPath(); ctx.arc(x, y, 5, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+  }
+}
+
+/* ---------- Soleil (équation du lever/coucher) ---------- */
+function sunset(date, lat, lon){
+  const J = date.getTime() / 86400000 + 2440587.5;
+  const n = Math.round(J - 2451545.0009 + lon / 360);
+  const Js = 2451545.0009 - lon / 360 + n;            // midi solaire moyen
+  const M = (357.5291 + 0.98560028 * (Js - 2451545)) % 360, Mr = rad(M);
+  const C = 1.9148*Math.sin(Mr) + 0.02*Math.sin(2*Mr) + 0.0003*Math.sin(3*Mr);
+  const lam = rad((M + C + 180 + 102.9372) % 360);
+  const Jt = Js + 0.0053*Math.sin(Mr) - 0.0069*Math.sin(2*lam);
+  const dec = Math.asin(Math.sin(lam) * Math.sin(rad(23.4397)));
+  const cosw = (Math.sin(rad(-0.833)) - Math.sin(rad(lat))*Math.sin(dec)) / (Math.cos(rad(lat))*Math.cos(dec));
+  if (cosw < -1 || cosw > 1) return null;
+  return new Date((Jt + deg(Math.acos(cosw)) / 360 - 2440587.5) * 86400000);
+}
+
+/* ---------- Navigation : montée, arrivée, points ---------- */
+let sess = null, alerted = new Set();
+function modelHours(dist, up, down){
+  const a = A(), th = dist / 1000 / a.flat, tv = up / a.up + down / a.down;
+  return Math.max(th, tv) + Math.min(th, tv) / 2;
+}
+function climbInfo(along){
+  if (!T || !T.hasEle) return null;
+  const a = along ?? 0;
+  for (const c of T.climbs){
+    const s = T.cum[c.i0], e = T.cum[c.i1];
+    if (a >= s && a < e){ const gain = Math.max(0, T.pts[c.i1].ele - eleAt(a)), d = e - a; return {k:'Reste à monter', gain, d, g:gain / d * 100}; }
+    if (a < s){ const gain = T.pts[c.i1].ele - T.pts[c.i0].ele, d = e - s; return {k:`Montée dans ${km(s - a)}`, gain, d, g:gain / d * 100}; }
+  }
+  return {k:'Plus de montée', gain:0, d:0, g:0};
+}
+let cpT = null;
+function showClimb(){
+  const el = $('climbpop'), ci = climbInfo(lastAlong);
+  if (!ci){ toast(T ? 'Ce GPX ne contient pas d’altitudes' : 'Aucune trace chargée'); return; }
+  $('cp-k').textContent = ci.k;
+  $('cp-v').innerHTML = `${fr(Math.round(ci.gain))}<small>m</small>`;
+  $('cp-d').textContent = ci.d ? `sur ${km(ci.d)}, ${slopeTxt(ci.g)}` : 'jusqu’à l’arrivée';
+  const et = getEta(lastAlong);
+  $('cp-e').textContent = et.started ? `Arrivée ${hm(et.arr)}` : `Durée ${dur(et.remH)}`;
+  $('cp-e').className = 'e' + (et.started && et.late ? ' late' : et.started && et.soon ? ' soon' : '');
+  $('cp-s').textContent = et.ss ? `Coucher du soleil ${hm(et.ss)}` : '';
+  const v = visRect();
+  el.style.left = ((v.l + v.r) / 2) + 'px';
+  el.style.top = ((Math.max(v.t, 0) + Math.min(v.b, innerHeight)) / 2) + 'px';
+  el.classList.add('on');
+  clearTimeout(cpT); cpT = setTimeout(() => el.classList.remove('on'), 5000);
+}
+function climbLine(along){
+  if (!T.hasEle) return '';
+  if (!T.climbs.length) return 'Pas de montée notable sur la trace';
+  const a = along ?? 0;
+  for (const c of T.climbs){
+    const s = T.cum[c.i0], e = T.cum[c.i1];
+    if (a >= s && a < e){
+      const gain = Math.max(0, T.pts[c.i1].ele - eleAt(a)), d = e - a;
+      return `Reste à monter ${fr(Math.round(gain))} m sur ${km(d)}, ${slopeTxt(gain / d * 100)}`;
+    }
+    if (a < s){
+      const gain = T.pts[c.i1].ele - T.pts[c.i0].ele, d = e - s;
+      return `Montée dans ${km(s - a)} : ${fr(Math.round(gain))} m sur ${km(d)}, ${slopeTxt(gain / d * 100)}`;
+    }
+  }
+  return 'Plus de montée notable jusqu’à l’arrivée';
+}
+function getEta(along){
+  const a = along ?? 0, i = idxAt(a);
+  const remH = modelHours(T.total - a, T.up - T.cumUp[i], T.down - T.cumDown[i]);
+  const ref = lastFix || T.pts[0], ss = sunset(new Date(), ref.lat, ref.lon);
+  let factor = 1;
+  if (sess && sess.moving > 600 && a - sess.along0 > 1000){
+    const i0 = idxAt(sess.along0);
+    const mh = modelHours(a - sess.along0, T.cumUp[i] - T.cumUp[i0], T.cumDown[i] - T.cumDown[i0]);
+    if (mh > 0.05) factor = clamp(sess.moving / 3600 / mh, 0.4, 2.5);
+  }
+  const arr = new Date(Date.now() + remH * factor * 3600000);
+  const late = !!(ss && arr > ss), soon = !!(ss && !late && arr > ss - 45 * 60000);
+  return {remH, ss, arr, late, soon, started: along != null && watchId != null};
+}
+function updateNav(along){
+  if (!$('i-eta')) return;               // lignes retirées de l'affichage
+  const eta = $('i-eta');
+  eta.className = '';
+  if (!T){
+    $('i-climb').textContent = ''; $('i-wpt').textContent = '';
+    const p = lastFix;
+    const ss = p ? sunset(new Date(), p.lat, p.lon) : null;
+    eta.textContent = ss ? `Coucher du soleil ${hm(ss)}` : '';
+    return;
+  }
+  $('i-climb').textContent = climbLine(along);
+  const a = along ?? 0, i = idxAt(a);
+  const remH = modelHours(T.total - a, T.up - T.cumUp[i], T.down - T.cumDown[i]);
+  const ref = lastFix || T.pts[0], ss = sunset(new Date(), ref.lat, ref.lon);
+  const sun = ss ? `, coucher ${hm(ss)}` : '';
+  if (along == null || watchId == null){
+    eta.textContent = `Durée estimée ${dur(remH)} (${A().name})${sun}`;
+  } else {
+    let factor = 1;
+    if (sess && sess.moving > 600 && a - sess.along0 > 1000){
+      const i0 = idxAt(sess.along0);
+      const mh = modelHours(a - sess.along0, T.cumUp[i] - T.cumUp[i0], T.cumDown[i] - T.cumDown[i0]);
+      if (mh > 0.05) factor = clamp(sess.moving / 3600 / mh, 0.4, 2.5);
+    }
+    const arr = new Date(Date.now() + remH * factor * 3600000);
+    eta.textContent = `Arrivée ${hm(arr)}${sun}`;
+    if (ss && arr > ss) eta.className = 'late';
+    else if (ss && arr > ss - 45 * 60000) eta.className = 'soon';
+  }
+  const nx = T.wptA.find(w => w.along > a + 20);
+  $('i-wpt').textContent = nx ? `${nx.name || 'Point'} dans ${km(nx.along - a)}` : '';
+}
+
+/* ---------- Annonces vocales ---------- */
+let voiceOn = store.get('tvtt-voice', '1') === '1', frVoice = null, vs = null;
+function pickVoice(){ try { const v = speechSynthesis.getVoices(); frVoice = v.find(x => x.lang === 'fr-FR' && x.localService) || v.find(x => (x.lang || '').startsWith('fr')) || null; } catch(e){} }
+if ('speechSynthesis' in window){ pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+function say(text, force){
+  if (!('speechSynthesis' in window) || (!voiceOn && !force)) return;
+  try { const u = new SpeechSynthesisUtterance(text); u.lang = 'fr-FR'; if (frVoice) u.voice = frVoice; u.rate = 1; u.volume = 1; speechSynthesis.speak(u); } catch(e){}
+}
+const sDist = d => d < 1000 ? `${Math.max(50, Math.round(d / 50) * 50)} mètres` : `${fr(d / 1000, 1)} kilomètres`;
+const sSlope = g => A().unit === '°' ? `${Math.round(slopeVal(g))} degrés` : `${Math.round(Math.abs(g))} pour cent`;
+function resetVoice(){ vs = {steep:new Set(), ap:new Set(), half:new Set(), top:new Set(), wpt:new Set(), km:null, offT:0, late:false}; }
+resetVoice();
+function voiceEvents(n, off){
+  const a = n.along;
+  if (off){ if (!vs.offT || Date.now() - vs.offT > 60000){ say(`Hors trace, ${sDist(n.d)}`); vs.offT = Date.now(); } }
+  else if (vs.offT){ say('Retour sur la trace'); vs.offT = 0; }
+  if (off) return;
+  T.climbs.forEach((c, j) => {
+    const s0 = T.cum[c.i0], e0 = T.cum[c.i1], gain = T.pts[c.i1].ele - T.pts[c.i0].ele;
+    if (!vs.ap.has(j) && s0 - a <= 500 && s0 - a > 0){
+      vs.ap.add(j); say(`Montée dans ${sDist(s0 - a)} : ${Math.round(gain)} mètres de dénivelé sur ${sDist(e0 - s0)}, ${sSlope(gain / (e0 - s0) * 100)}`);
+    }
+    if (a >= s0 && a < e0){
+      vs.ap.add(j);
+      const rem = T.pts[c.i1].ele - eleAt(a);
+      if (!vs.top.has(j) && e0 - a < 150){ vs.top.add(j); vs.half.add(j); say('Fin de montée dans 150 mètres'); }
+      else if (!vs.half.has(j) && gain >= 80 && rem <= gain / 2){ vs.half.add(j); say(`Mi-montée, encore ${Math.round(rem)} mètres`); }
+    }
+  });
+  (T.steep || []).forEach((x, j) => {
+    if (vs.steep.has(j)) return;
+    if (a >= x.s && a <= x.e){ vs.steep.add(j); return; }          // déjà dedans : on ne l'annonce plus
+    const d = x.s - a;
+    if (d > 0 && d <= 150){
+      vs.steep.add(j);
+      const sens = x.dir > 0 ? 'en montée' : 'en descente';
+      say(`Attention, pente raide dans ${sDist(d)}, ${sens}, ${sSlope(x.max)} sur ${sDist(x.e - x.s)}`);
+      toast(`Pente raide dans ${km(d)} : ${slopeTxt(x.max)} ${sens}`, 5000);
+    }
+  });
+  T.wptA.forEach(w => { const d = w.along - a; if (!vs.wpt.has(w) && d > 200 && d <= 1000){ vs.wpt.add(w); say(`${w.name || 'Point de passage'} dans ${sDist(d)}`); } });
+  const k = Math.floor(a / 5000);
+  if (vs.km == null) vs.km = k;
+  else if (k > vs.km){ vs.km = k; say(`${k * 5} kilomètres. Reste ${fr((T.total - a) / 1000, 1)} kilomètres`); }
+  if (!vs.late && sess && sess.moving > 600){ const et = getEta(a); if (et.late){ vs.late = true; say('Attention, arrivée prévue après le coucher du soleil'); } }
+}
+
+/* ---------- Orientation de la carte (sens de marche en haut) ---------- */
+let headUp = store.get('tvtt-headup', '0') === '1', compassHdg = null, gpsHdg = null, bearingCur = 0, lastApply = 0, orientOn = false;
+map.on('rotate', () => {
+  const b = map.getBearing();
+  document.documentElement.style.setProperty('--mb', b + 'deg');
+  $('needle').style.transform = `rotate(${b}deg)`;
+});
+function applyBearing(target, now){
+  const t = performance.now();
+  if (!now && t - lastApply < 120) return;
+  lastApply = t;
+  const d = ((target - bearingCur + 540) % 360) - 180;
+  if (Math.abs(d) < 2) return;
+  bearingCur = (bearingCur + d * (now ? 1 : 0.5) + 360) % 360;
+  map.setBearing(bearingCur);
+}
+function onOrient(e){
+  let h = e.webkitCompassHeading;
+  if (h == null && e.absolute && e.alpha != null) h = 360 - e.alpha;
+  if (h == null) return;
+  const ang = typeof window.orientation === 'number' ? window.orientation : (screen.orientation ? screen.orientation.angle : 0);
+  compassHdg = (h + ang + 360) % 360;
+  if (headUp && gpsHdg == null) applyBearing(-compassHdg);
+  updateArrow();
+}
+async function enableCompass(){
+  if (orientOn) return;
+  try {
+    if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission){
+      const r = await DeviceOrientationEvent.requestPermission();
+      if (r !== 'granted'){ toast('Boussole refusée : la carte tournera seulement en roulant', 4000); return; }
+    }
+    window.addEventListener('deviceorientation', onOrient, true); orientOn = true;
+  } catch(e){}
+}
+function setHeadUp(on){
+  headUp = on; store.set('tvtt-headup', on ? '1' : '0');
+  $('compass').classList.toggle('on', on);
+  if (on){ enableCompass(); toast('Carte orientée dans ton sens de marche'); }
+  else { bearingCur = 0; map.setBearing(0); toast('Carte nord en haut'); }
+}
+$('compass').addEventListener('click', () => setHeadUp(!headUp));
+function updateArrow(){
+  const arrow = meMarker && meMarker.getElement() && meMarker.getElement().querySelector('.me-arrow');
+  if (!arrow) return;
+  const h = gpsHdg ?? compassHdg;
+  if (h == null){ arrow.style.display = 'none'; return; }
+  arrow.style.display = 'block'; arrow.style.transform = `rotate(calc(${h}deg + var(--mb,0deg)))`;
+}
+
+/* ---------- Retour sur la trace ---------- */
+let rejoinLine = null;
+function showRejoin(here, n, off){
+  if (!rejoinLine) rejoinLine = L.polyline([], {color:'#B3261E', weight:6, dashArray:'2 12', lineCap:'round', interactive:false}).addTo(map);
+  if (!off){ rejoinLine.setLatLngs([]); return null; }
+  const p = T.pts[n.i], q = T.pts[Math.min(n.i + 1, T.pts.length - 1)];
+  const proj = {lat:p.lat + n.t * (q.lat - p.lat), lon:p.lon + n.t * (q.lon - p.lon)};
+  rejoinLine.setLatLngs([[here.lat, here.lon], [proj.lat, proj.lon]]);
+  return bearing(here, proj);
+}
+
+/* ---------- Mode libre (sans GPX) ---------- */
+function setFreeMode(on){
+  $('rest-lbl').textContent = on ? 'Distance' : 'Reste';
+  $('l-done').textContent = on ? 'Temps' : 'Fait';
+  $('u-done').textContent = on ? '' : 'km';
+  $('l-up').textContent = on ? 'D+' : 'D+ restant';
+  if (on){
+    $('tname').textContent = 'Sans trace';
+    $('tmeta').textContent = 'export GPX : Menu';
+    showFree();
+  }
+}
+function showFree(){
+  const m = Math.round(ride.moving / 60);
+  $('rest').textContent = fr(ride.dist / 1000, ride.dist < 10000 ? 2 : 1);
+  $('done').textContent = `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+  $('uprest').textContent = fr(Math.round(ride.up));
+  fitVals();
+}
+
+/* ---------- Enregistrement de la sortie ---------- */
+const newRide = () => ({start:Date.now(), pts:[], dist:0, up:0, moving:0, ref:null});
+let ride; try { ride = JSON.parse(store.get('tvtt-ride', 'null')) || newRide(); } catch(e){ ride = newRide(); }
+const saveRide = () => store.set('tvtt-ride', JSON.stringify(ride));
+let lastRideSave = Date.now();
+function checkpointRide(force = false){
+  const now = Date.now();
+  if (force || ride.pts.length % 3 === 0 || now - lastRideSave >= 10000){
+    saveRide(); lastRideSave = now;
+  }
+}
+const rideLine = L.polyline(ride.pts.map(p => [p.lat, p.lon]), {color:'#0B3D91', weight:3, opacity:.75, interactive:false}).addTo(map);
+function rideAdd(c, t){
+  if (c.accuracy > 35) return;
+  const p = {lat:+c.latitude.toFixed(6), lon:+c.longitude.toFixed(6), ele:(c.altitude != null && !isNaN(c.altitude)) ? Math.round(c.altitude * 10) / 10 : null, t};
+  const lp = ride.pts[ride.pts.length - 1];
+  if (lp){
+    const d = hav(lp, p), dt = (t - lp.t) / 1000;
+    // Reject stale, non-monotonic and physically implausible fixes before accumulating distance.
+    if (dt <= 0 || (dt < 90 && d / dt > 25)) return;
+    const moving = spdS > 0.8;                          // à l'arrêt, le GPS « tremble » de quelques mètres
+    if (moving ? d < 2 : (d < Math.max(5, c.accuracy) && dt < 30)) return;
+    ride.dist += d;
+    if (dt < 90 && dt > 0 && d / dt > A().moveSpd){ ride.moving += dt; if (sess) sess.moving += dt; }
+  }
+  // Poor vertical accuracy must not inflate accumulated ascent.
+  if (p.ele != null && (c.altitudeAccuracy == null || c.altitudeAccuracy <= 15)){
+    if (ride.ref == null) ride.ref = p.ele;
+    else { const dd = p.ele - ride.ref; if (dd > 5){ ride.up += dd; ride.ref = p.ele; } else if (dd < -5) ride.ref = p.ele; }
+  }
+  ride.pts.push(p); rideLine.addLatLng([p.lat, p.lon]);
+  checkpointRide();
+}
+function renderRide(){
+  const n = ride.pts.length;
+  $('rec-info').textContent = n < 2
+    ? 'L’enregistrement démarre avec le suivi.'
+    : `Depuis le ${new Date(ride.start).toLocaleDateString('fr-FR')} à ${hm(new Date(ride.start))} : ${km(ride.dist)}, D+ ${fr(Math.round(ride.up))} m, ${dur(ride.moving / 3600)} en mouvement.`;
+  $('rec-export').disabled = n < 2;
+}
+function rideGPX(){
+  const name = `Sortie du ${new Date(ride.start).toLocaleDateString('fr-FR')}`;
+  let s = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Traces" xmlns="http://www.topografix.com/GPX/1/1">\n<trk><name>${esc(name)}</name><trkseg>\n`;
+  ride.pts.forEach(p => { s += `<trkpt lat="${p.lat}" lon="${p.lon}">${p.ele != null ? `<ele>${p.ele}</ele>` : ''}<time>${new Date(p.t).toISOString()}</time></trkpt>\n`; });
+  return s + '</trkseg></trk>\n</gpx>\n';
+}
+async function exportRide(){
+  saveRide();
+  const fname = `sortie-${new Date(ride.start).toISOString().slice(0, 10)}.gpx`;
+  const file = new File([rideGPX()], fname, {type:'application/gpx+xml'});
+  if (navigator.canShare && navigator.canShare({files:[file]})){
+    try { await navigator.share({files:[file], title:fname}); return; } catch(e){ if (e.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = fname;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+}
+$('rec-export').addEventListener('click', exportRide);
+$('rec-reset').addEventListener('click', () => {
+  if (ride.pts.length > 1 && !confirm('Effacer la sortie enregistrée et repartir de zéro ? Pense à l’exporter avant.')) return;
+  ride = newRide(); saveRide(); rideLine.setLatLngs([]); vmax = 0; $('vmax').textContent = '0'; renderRide(); if (!T) showFree();
+});
+
+/* ---------- GPS ---------- */
+let watchId = null, wakeLock = null, last = null, lastFix = null, spdS = 0, vmax = 0, lastAlong = null, offState = false, audio = null;
+
+function start(){
+  if (!('geolocation' in navigator)){ toast('GPS indisponible sur cet appareil'); return; }
+  const lp = ride.pts[ride.pts.length - 1];
+  if (lp && Date.now() - lp.t > 3 * 3600000){
+    if (confirm(`Une sortie du ${new Date(ride.start).toLocaleDateString('fr-FR')} est déjà enregistrée (${fr(ride.dist / 1000, 1)} km).\n\nOK : commencer une nouvelle sortie (pense à exporter l’ancienne avant).\nAnnuler : continuer l’ancienne.`)){
+      ride = newRide(); saveRide(); rideLine.setLatLngs([]); vmax = 0; $('vmax').textContent = '0';
+      if (!T) showFree();
+    }
+  }
+  watchId = navigator.geolocation.watchPosition(onPos, onPosErr, {enableHighAccuracy:true, maximumAge:0, timeout:20000});
+  $('go').textContent = 'Pause'; $('go').classList.add('running');
+  requestWake();
+  try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch(e){}
+  follow = true; $('center').classList.remove('hot');
+  sess = null;
+  say('Suivi démarré');
+  if (headUp) enableCompass();
+}
+function stop(){
+  if (watchId != null) navigator.geolocation.clearWatch(watchId);
+  watchId = null; $('go').textContent = 'Reprendre'; $('go').classList.remove('running');
+  if (wakeLock){ wakeLock.release().catch(()=>{}); wakeLock = null; }
+  saveRide(); updateNav(lastAlong);
+}
+$('go').addEventListener('click', () => watchId == null ? start() : stop());
+
+async function requestWake(){ try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch(e){} }
+window.addEventListener('pagehide', () => checkpointRide(true));
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && watchId != null) requestWake();
+  if (document.visibilityState === 'hidden') checkpointRide(true);
+});
+
+function onPosErr(e){
+  $('alt-tag').textContent = 'GPS : ' + (e.code === 1 ? 'refusé' : 'recherche');
+  toast(e.code === 1 ? 'Localisation refusée : autorise-la dans Réglages, Safari, Position.' : 'Signal GPS faible, recherche en cours…', 4000);
+}
+
+let meMarker = null, accCircle = null, follow = true;
+function onPos(p){
+  const c = p.coords, now = p.timestamp, here = {lat:c.latitude, lon:c.longitude};
+  lastFix = {lat:here.lat, lon:here.lon, alt:c.altitude, acc:c.accuracy, t:now};
+
+  let v = (c.speed != null && c.speed >= 0) ? c.speed : null, doppler = v != null;
+  if (v == null && last){ const dt = (now - last.t) / 1000; if (dt > 0.5) v = hav(last, here) / dt; }
+  if (v != null){
+    const k = doppler ? 0.85 : 0.5;
+    spdS = spdS * (1 - k) + v * k;
+    const kmh = spdS < 0.5 ? 0 : spdS * 3.6;
+    $('spd').textContent = kmh < 10 ? fr(kmh, 1) : fr(kmh);
+    if (c.accuracy < 25 && kmh > vmax && kmh < 120){ vmax = kmh; $('vmax').textContent = fr(vmax); }
+  }
+  last = {lat:here.lat, lon:here.lon, t:now};
+  rideAdd(c, now);
+
+  const ll = L.latLng(here.lat, here.lon);
+  if (!meMarker){
+    meMarker = L.marker(ll, {icon:L.divIcon({className:'me', html:'<div class="me-dot"><div class="me-arrow"></div></div>', iconSize:[28,28], iconAnchor:[14,14]}), zIndexOffset:1000, interactive:false}).addTo(map);
+    accCircle = L.circle(ll, {radius:c.accuracy, weight:1, color:'#16181D', fillOpacity:.07, interactive:false}).addTo(map);
+    showAt(ll, Math.max(map.getZoom(), 15));
+  } else { meMarker.setLatLng(ll); accCircle.setLatLng(ll).setRadius(c.accuracy); }
+  gpsHdg = (c.heading != null && !isNaN(c.heading) && spdS > 1.5) ? c.heading : null;
+  if (headUp && gpsHdg != null) applyBearing(-gpsHdg, true);
+  updateArrow();
+  if (follow) showAt(ll);
+
+  let traceEle = null;
+  if (T){
+    const n = nearest(here.lat, here.lon);
+    traceEle = eleAt(n.along);
+    lastAlong = n.along;
+    if (!sess && n.d < 100) sess = {along0:n.along, moving:0};
+    const i = idxAt(n.along);
+    $('done').textContent = fr(n.along / 1000, 1);
+    $('rest').textContent = fr(Math.max(0, T.total - n.along) / 1000, 1);
+    $('uprest').textContent = T.hasEle ? fr(Math.max(0, Math.round(T.up - T.cumUp[i]))) : '–';
+    const off = n.d > Math.max(40, c.accuracy * 1.5);
+    if (n.d < 60) ride.maxAlong = Math.max(ride.maxAlong || 0, n.along);
+    ride.trackId = trackRec ? trackRec.id : null; ride.vmax = vmax;
+    const brg = showRejoin(here, n, off);
+    $('offtrack').innerHTML = off ? `<svg width="30" height="30" viewBox="0 0 30 30" style="transform:rotate(calc(${brg}deg + var(--mb,0deg)))"><path d="M15 2 L26 26 L15 19 L4 26 Z" fill="#fff"/></svg>Trace à ${fr(Math.round(n.d))} m` : '';
+    $('offtrack').classList.toggle('on', off);
+    voiceEvents(n, off);
+    if (off && !offState) beep();
+    offState = off;
+    drawProfile(n.along);
+    // Alerte à l'approche des points du GPX
+    T.wpts.forEach(w => {
+      if (!alerted.has(w) && hav(here, w) < 100){ alerted.add(w); toast(`À proximité : ${w.name || 'point de la trace'}`, 4000); beep(); say(w.name || 'Point de passage'); }
+    });
+  }
+  updateNav(T ? lastAlong : null);
+  if (!T) showFree();
+
+  if (c.altitude != null && !isNaN(c.altitude)){
+    $('alt').textContent = String(Math.round(c.altitude));
+    $('alt-lbl').textContent = 'Altitude GPS';
+    $('alt-tag').textContent = (c.altitudeAccuracy ? `± ${Math.round(c.altitudeAccuracy)} m` : 'GPS') + (traceEle != null && T.hasEle ? `, trace ${fr(Math.round(traceEle))} m` : '');
+  } else if (traceEle != null && T.hasEle){
+    $('alt').textContent = String(Math.round(traceEle));
+    $('alt-lbl').textContent = 'Altitude trace';
+    $('alt-tag').textContent = 'GPS sans altitude';
+  }
+  fitVals();
+  if (!$('sheet').hidden) renderSOS();
+}
+
+function beep(){
+  try {
+    if (!audio) return;
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.frequency.value = 880; g.gain.value = .25; o.connect(g); g.connect(audio.destination);
+    o.start(); o.stop(audio.currentTime + .35);
+  } catch(e){}
+}
+
+/* ---------- Secours ---------- */
+function dms(v, pos, neg){
+  const h = v < 0 ? neg : pos; v = Math.abs(v);
+  let d = Math.floor(v), m = Math.floor((v - d) * 60), s = Math.round(((v - d) * 60 - m) * 600) / 10;
+  if (s >= 60){ s = 0; m++; } if (m >= 60){ m = 0; d++; }
+  return `${d}°${String(m).padStart(2, '0')}′${s.toFixed(1).padStart(4, '0')}″ ${h}`;
+}
+function sosText(){
+  const p = lastFix; if (!p) return '';
+  const alt = p.alt != null && !isNaN(p.alt) ? `, altitude ${Math.round(p.alt)} m` : '';
+  return `J’ai besoin d’aide. Ma position : ${p.lat.toFixed(5)}, ${p.lon.toFixed(5)} (${dms(p.lat, 'N', 'S')} ${dms(p.lon, 'E', 'O')})${alt}, précision ${Math.round(p.acc)} m. https://maps.apple.com/?ll=${p.lat.toFixed(5)},${p.lon.toFixed(5)}&q=Position`;
+}
+function renderSOS(){
+  const p = lastFix;
+  if (!p){ $('sos-dd').textContent = 'Position inconnue'; $('sos-dms').textContent = 'Recherche de la position…'; $('sos-meta').textContent = ''; return; }
+  $('sos-dd').textContent = `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`;
+  $('sos-dms').textContent = `${dms(p.lat, 'N', 'S')}  ${dms(p.lon, 'E', 'O')}`;
+  const alt = p.alt != null && !isNaN(p.alt) ? `Altitude ${fr(Math.round(p.alt))} m, ` : '';
+  $('sos-meta').textContent = `${alt}précision ${fr(Math.round(p.acc))} m, relevée à ${hm(new Date(p.t))}`;
+}
+function refreshFix(){
+  if (watchId != null || !('geolocation' in navigator)) return;
+  navigator.geolocation.getCurrentPosition(pos => {
+    const c = pos.coords; lastFix = {lat:c.latitude, lon:c.longitude, alt:c.altitude, acc:c.accuracy, t:pos.timestamp}; renderSOS(); updateNav(lastAlong);
+  }, () => {}, {enableHighAccuracy:true, timeout:15000, maximumAge:60000});
+}
+$('sos-sms').addEventListener('click', () => {
+  if (!lastFix){ toast('Position pas encore connue'); return; }
+  location.href = 'sms:&body=' + encodeURIComponent(sosText());
+});
+$('sos-share').addEventListener('click', async () => {
+  if (!lastFix){ toast('Position pas encore connue'); return; }
+  try { await navigator.share({text:sosText()}); }
+  catch(e){ if (e.name !== 'AbortError'){ try { await navigator.clipboard.writeText(sosText()); toast('Position copiée'); } catch(err){} } }
+});
+
+/* ---------- Centrer, profil, verrou ---------- */
+map.on('dragstart', () => { follow = false; $('center').classList.add('hot'); });
+$('center').addEventListener('click', () => {
+  follow = true; $('center').classList.remove('hot');
+  if (meMarker) showAt(meMarker.getLatLng(), Math.max(map.getZoom(), 15));
+  else if (trackLine) map.fitBounds(trackLine.getBounds(), fitPad());
+});
+function setProfile(on){
+  document.body.classList.toggle('noprof', !on);
+  $('prof').setAttribute('aria-pressed', on);
+  store.set('tvtt-prof', on ? '1' : '0');
+  layout();
+}
+$('prof').addEventListener('click', () => setProfile(document.body.classList.contains('noprof')));
+
+let holdT = null;
+$('lockb').addEventListener('click', () => { $('lock').hidden = false; });
+const unlockBtn = $('unlock');
+unlockBtn.addEventListener('pointerdown', e => {
+  e.preventDefault(); unlockBtn.classList.add('holding');
+  holdT = setTimeout(() => { $('lock').hidden = true; unlockBtn.classList.remove('holding'); }, 900);
+});
+['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => unlockBtn.addEventListener(ev, () => { clearTimeout(holdT); unlockBtn.classList.remove('holding'); }));
+$('lock').addEventListener('touchmove', e => e.preventDefault(), {passive:false});
+$('lock').addEventListener('contextmenu', e => e.preventDefault());
+
+/* ---------- Menu ---------- */
+const TILE_CACHE = 'tvtt-tiles', MAX_TILES = 15000;
+let dlZone = 'trace', dlDetail = 'std', dlRunning = false, dlAbort = false;
+
+function seg(id, value){ $(id).querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === String(value))); }
+function onSeg(id, fn){ $(id).addEventListener('click', e => { const b = e.target.closest('button'); if (b && !b.disabled) fn(b.dataset.v); }); }
+
+function renderMenu(){
+  renderSOS(); refreshFix();
+  seg('seg-voice', voiceOn ? 1 : 0); loadWeather(false);
+  seg('seg-act', act); $('act-hint').textContent = A().hint;
+  renderLib(); $('rev').disabled = !trackRec;
+  renderRide();
+  $('layer-list').innerHTML = '';
+  layers.forEach((d, i) => {
+    const b = document.createElement('button'); b.className = 'opt';
+    b.setAttribute('aria-pressed', i === layerIdx);
+    b.innerHTML = `<span>${d.name}</span><small>${d.zone}</small>`;
+    b.onclick = () => setLayer(i);
+    $('layer-list').appendChild(b);
+  });
+  $('ov-sec').hidden = act !== 'ski';
+  seg('seg-ov', ovOn ? 'on' : 'off');
+  seg('seg-color', colorMode);
+  $('legend').innerHTML = colorMode === 'slope' ? legendLabels().map((l, i) => `<span><i style="background:${COLORS[i]}"></i>${l}</span>`).join('') : '';
+  seg('seg-big', document.body.classList.contains('big') ? 1 : 0);
+  seg('seg-sun', document.body.classList.contains('sun') ? 1 : 0);
+  seg('seg-trans', document.body.classList.contains('trans') ? 1 : 0);
+  seg('seg-compact', document.body.classList.contains('compact') ? 1 : 0);
+  renderOffline();
+}
+function setLayer(i){
+  map.removeLayer(lay().l); layerIdx = i; lay().l.addTo(map); lay().l.bringToBack();
+  store.set('tvtt-layer', i); applyOfflineZoom(); renderMenu();
+}
+function setAct(v){
+  act = ACTS[v] ? v : 'vtt'; store.set('tvtt-act', act);
+  ovOn = act === 'ski' && store.get('tvtt-ov-ski', 'on') === 'on';
+  applyOverlay();
+  if (T){ T.climbs = findClimbs(T); drawTrack(); drawProfile(lastAlong); }
+  updateNav(lastAlong);
+}
+onSeg('seg-act', v => { setAct(v); renderMenu(); });
+onSeg('seg-ov', v => { ovOn = v === 'on'; store.set('tvtt-ov-ski', v); applyOverlay(); renderMenu(); });
+onSeg('seg-color', v => { colorMode = v; store.set('tvtt-color', v); drawTrack(); drawProfile(lastAlong); renderMenu(); });
+onSeg('seg-big', v => { document.body.classList.toggle('big', v === '1'); store.set('tvtt-big', v); layout(); renderMenu(); });
+onSeg('seg-sun', v => { document.body.classList.toggle('sun', v === '1'); store.set('tvtt-sun', v); drawTrack(); layout(); renderMenu(); });
+onSeg('seg-voice', v => { voiceOn = v === '1'; store.set('tvtt-voice', v); renderMenu(); if (voiceOn) say('Annonces vocales activées'); });
+$('voice-test').addEventListener('click', () => say('Montée dans 500 mètres : 300 mètres de dénivelé sur 2 kilomètres', true));
+$('wx-reload').addEventListener('click', () => loadWeather(true));
+$('rec-end').addEventListener('click', endRide);
+$('sum-export').addEventListener('click', exportRide);
+$('sum-close').addEventListener('click', () => { $('summary').hidden = true; });
+onSeg('seg-trans', v => { document.body.classList.toggle('trans', v === '1'); store.set('tvtt-trans', v); renderMenu(); });
+onSeg('seg-compact', v => { document.body.classList.toggle('compact', v === '1'); store.set('tvtt-compact', v); layout(); renderMenu(); });
+onSeg('seg-zone', v => { dlZone = v; renderOffline(); });
+onSeg('seg-detail', v => { dlDetail = v; renderOffline(); });
+
+/* ---------- Résumé de fin de sortie ---------- */
+function endRide(){
+  if (watchId != null) stop();
+  saveRide();
+  if (ride.pts.length < 2){ toast('Aucune sortie enregistrée pour l’instant'); return; }
+  const tot = (ride.pts[ride.pts.length - 1].t - ride.pts[0].t) / 3600000;
+  const avg = ride.moving > 60 ? ride.dist / ride.moving * 3.6 : 0;
+  const cells = [
+    ['Distance', fr(ride.dist / 1000, 1), 'km'], ['Dénivelé +', fr(Math.round(ride.up)), 'm'],
+    ['Durée totale', dur(tot), ''], ['En mouvement', dur(ride.moving / 3600), ''],
+    ['Moyenne', fr(avg, 1), 'km/h'], ['Vitesse max', fr(ride.vmax || vmax), 'km/h']
+  ];
+  if (T && ride.trackId && trackRec && ride.trackId === trackRec.id) cells.push(['Trace suivie', fr(Math.min(100, Math.round((ride.maxAlong || 0) / T.total * 100))), '%']);
+  $('sum-stats').innerHTML = cells.map(c => `<div><span>${c[0]}</span><b>${c[1]}<small>${c[2]}</small></b></div>`).join('');
+  $('sheet').hidden = true; $('summary').hidden = false;
+  const b = rideLine.getBounds(); if (trackLine) b.extend(trackLine.getBounds());
+  if (b.isValid()){ follow = false; map.fitBounds(b, fitPad()); }
+  say(`Sortie terminée. ${fr(ride.dist / 1000, 1)} kilomètres, ${Math.round(ride.up)} mètres de dénivelé.`);
+}
+
+/* ---------- Météo (Open-Meteo) ---------- */
+let wx = {t:0, key:'', data:null, pts:null};
+async function loadWeather(force){
+  const box = $('wx');
+  let pts = [];
+  if (T){
+    const s0 = T.pts[0]; let hi = s0; for (const p of T.pts) if (p.ele > hi.ele) hi = p;
+    pts.push({lat:s0.lat, lon:s0.lon, ele:T.hasEle ? s0.ele : null, label:'départ'});
+    if (T.hasEle && hi.ele - s0.ele > 150) pts.push({lat:hi.lat, lon:hi.lon, ele:hi.ele, label:'sommet'});
+  } else if (lastFix) pts.push({lat:lastFix.lat, lon:lastFix.lon, ele:null, label:'ici'});
+  if (!pts.length){ box.innerHTML = '<p class="hint">Charge une trace ou lance le suivi pour voir la météo.</p>'; return; }
+  const key = pts.map(p => p.lat.toFixed(2) + ',' + p.lon.toFixed(2)).join('|');
+  if (!force && wx.data && wx.key === key && Date.now() - wx.t < 30 * 60000){ renderWx(); return; }
+  box.innerHTML = '<p class="hint">Chargement de la météo…</p>';
+  let url = 'https://api.open-meteo.com/v1/forecast?latitude=' + pts.map(p => p.lat.toFixed(4)).join(',') + '&longitude=' + pts.map(p => p.lon.toFixed(4)).join(',')
+    + '&hourly=temperature_2m,precipitation_probability,wind_speed_10m,wind_gusts_10m,freezing_level_height&timezone=auto&forecast_days=2';
+  if (pts.every(p => p.ele != null && isFinite(p.ele))) url += '&elevation=' + pts.map(p => Math.round(p.ele)).join(',');
+  try {
+    const r = await fetch(url); if (!r.ok) throw new Error();
+    let j = await r.json(); if (!Array.isArray(j)) j = [j];
+    wx = {t:Date.now(), key, data:j, pts}; renderWx();
+  } catch(e){ box.innerHTML = '<p class="hint">Météo indisponible, pas de réseau ?</p>'; }
+}
+function renderWx(){
+  const j = wx.data, pts = wx.pts, h0 = j[0].hourly, ski = act === 'ski';
+  const nowLoc = new Date(Date.now() + (j[0].utc_offset_seconds || 0) * 1000).toISOString().slice(0, 13);
+  let i0 = h0.time.findIndex(t => t.slice(0, 13) >= nowLoc); if (i0 < 0) i0 = 0;
+  const two = pts.length > 1;
+  let rows = '';
+  for (let k = 0; k < 7; k++){
+    const i = i0 + k * 2; if (i >= h0.time.length) break;
+    const t1 = Math.round(h0.temperature_2m[i]), t2 = two ? Math.round(j[1].hourly.temperature_2m[i]) : null;
+    const pr = h0.precipitation_probability[i] ?? 0;
+    const wsrc = two ? j[1].hourly : h0, ws = Math.round(wsrc.wind_speed_10m[i]), wg = Math.round(wsrc.wind_gusts_10m[i]);
+    const iso = h0.freezing_level_height[i];
+    rows += `<tr><td>${+h0.time[i].slice(11, 13)} h</td><td>${t1}°${two ? ` / ${t2}°` : ''}</td><td class="${pr >= 50 ? 'hot' : ''}">${pr} %</td><td class="${wg >= 60 ? 'hot' : ''}">${ws} (${wg})</td>${ski ? `<td>${iso != null ? Math.round(iso / 100) * 100 + ' m' : '–'}</td>` : ''}</tr>`;
+  }
+  const legend = two ? `Températures au départ (${fr(Math.round(pts[0].ele))} m) et au sommet (${fr(Math.round(pts[1].ele))} m), vent au sommet en km/h (rafales).`
+    : 'Vent en km/h (rafales).';
+  $('wx').innerHTML = `<table class="wx"><tr><th>Heure</th><th>Temp.</th><th>Pluie</th><th>Vent</th>${ski ? '<th>Iso 0°</th>' : ''}</tr>${rows}</table><p class="hint" style="margin-top:6px">${legend} Source Open-Meteo, mise à jour à ${hm(new Date(wx.t))}.</p>`;
+}
+
+/* ---------- Cartes hors ligne ---------- */
+function renderOffline(){
+  const d = lay(), can = d.dlStd > 0 && 'caches' in window;
+  $('dl-hint').textContent = !('caches' in window) ? 'Le hors ligne demande l’app ouverte en HTTPS (GitHub Pages).'
+    : d.dlStd ? `Fond ${d.name}${ovOn ? ' et pentes du terrain' : ''}. Standard jusqu’au zoom ${d.dlStd}, détaillé jusqu’au zoom ${d.dlMax}.`
+    : 'OpenStreetMap interdit le téléchargement en masse. Choisis OpenTopoMap, Plan IGN ou Swisstopo.';
+  if (!T && dlZone === 'trace') dlZone = 'view';
+  seg('seg-zone', dlZone); seg('seg-detail', dlDetail);
+  ['seg-zone', 'seg-detail'].forEach(id => $(id).querySelectorAll('button').forEach(b => b.disabled = !can || dlRunning));
+  $('seg-zone').querySelector('[data-v=trace]').disabled = !can || !T || dlRunning;
+  $('dl-go').disabled = !can && !dlRunning;
+  estimate(); storedInfo();
+}
+const lon2x = (lon, z) => Math.floor((lon + 180) / 360 * 2**z);
+const lat2y = (lat, z) => { const r = rad(lat); return Math.floor((1 - Math.log(Math.tan(r) + 1/Math.cos(r)) / Math.PI) / 2 * 2**z); };
+function computeTiles(){
+  const d = lay(), zMax = dlDetail === 'max' ? d.dlMax : d.dlStd, set = new Set();
+  const addBox = (s, w, n, e, z) => {
+    for (let x = lon2x(w, z); x <= lon2x(e, z); x++) for (let y = lat2y(n, z); y <= lat2y(s, z); y++) set.add(`${z}/${x}/${y}`);
+  };
+  if (dlZone === 'view' || !T){
+    const b = map.getBounds();
+    for (let z = 8; z <= zMax; z++) addBox(b.getSouth(), b.getWest(), b.getNorth(), b.getEast(), z);
+  } else {
+    const b = trackLine.getBounds().pad(0.05);
+    for (let z = 8; z <= Math.min(11, zMax); z++) addBox(b.getSouth(), b.getWest(), b.getNorth(), b.getEast(), z);
+    for (let z = 12; z <= zMax; z++){
+      const tileM = 40075016.7 * Math.cos(rad(T.pts[0].lat)) / 2**z, r = Math.max(1, Math.ceil(800 / tileM));
+      for (let i = 0; i < T.pts.length - 1; i++){
+        const p = T.pts[i], q = T.pts[i+1], steps = Math.max(1, Math.ceil((T.cum[i+1] - T.cum[i]) / (tileM / 2)));
+        for (let k = 0; k < steps; k++){
+          const tx = lon2x(p.lon + (q.lon - p.lon) * k / steps, z), ty = lat2y(p.lat + (q.lat - p.lat) * k / steps, z);
+          for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) set.add(`${z}/${tx+dx}/${ty+dy}`);
+        }
+      }
+    }
+  }
+  return [...set].map(k => k.split('/').map(Number));
+}
+const tileUrl = (d, z, x, y) => L.Util.template(d.url, {s:d.sub ? d.sub[Math.abs(x + y) % d.sub.length] : '', z, x, y});
+function jobs(){
+  const d = lay(), tiles = computeTiles(), list = tiles.map(([z, x, y]) => ({url:tileUrl(d, z, x, y), base:true}));
+  if (ovOn) overlays.forEach(o => tiles.forEach(([z, x, y]) => { if (z <= o.maxNative) list.push({url:tileUrl(o, z, x, y), base:false}); }));
+  return {list, n:tiles.length};
+}
+function estimate(){
+  if (dlRunning) return;
+  const d = lay();
+  if (!d.dlStd || !('caches' in window)){ $('dl-est').textContent = ''; return; }
+  const {list, n} = jobs(), mo = (n * d.kb + (list.length - n) * 8) / 1024;
+  $('dl-est').textContent = n > MAX_TILES
+    ? `${fr(n)} tuiles : zone trop grande. Zoome sur la carte ou choisis Standard.`
+    : `${fr(n)} tuiles${ovOn ? ' (plus les pentes)' : ''}, environ ${fr(mo, mo < 10 ? 1 : 0)} Mo`;
+  $('dl-go').disabled = n > MAX_TILES;
+}
+async function download(){
+  const d = lay(), {list, n} = jobs();
+  if (n > MAX_TILES) return;
+  dlRunning = true; dlAbort = false;
+  $('dl-go').textContent = 'Annuler'; $('dl-go').classList.add('running'); $('dl-bar').classList.add('on'); renderOffline();
+  try { await navigator.storage?.persist?.(); } catch(e){}
+  const cache = await caches.open(TILE_CACHE);
+  let i = 0, done = 0, fail = 0, full = false;
+  const show = () => {
+    $('dl-bar').firstElementChild.style.width = (done / list.length * 100) + '%';
+    $('dl-status').textContent = `${fr(done)} sur ${fr(list.length)} tuiles` + (fail ? `, ${fr(fail)} échecs` : '');
+  };
+  const worker = async () => {
+    while (i < list.length && !dlAbort && !full){
+      const job = list[i++];
+      try {
+        if (!(await cache.match(job.url))){
+          let r;
+          try { r = await fetch(job.url, {mode:'cors'}); } catch(e){ r = await fetch(job.url, {mode:'no-cors'}); }
+          if (r.ok || r.type === 'opaque') await cache.put(job.url, r); else if (job.base) fail++;
+        }
+      } catch(e){ if (e && e.name === 'QuotaExceededError') full = true; else if (job.base) fail++; }
+      done++; if (done % 10 === 0 || done === list.length) show();
+    }
+  };
+  await Promise.all(Array.from({length:6}, worker));
+  show();
+  const zMax = dlDetail === 'max' ? d.dlMax : d.dlStd, k = 'tvtt-dlz-' + layerIdx;
+  store.set(k, Math.max(zMax, +store.get(k, 0)));
+  $('dl-status').textContent = full ? 'Stockage plein : supprime des cartes ou réduis la zone.'
+    : dlAbort ? `Téléchargement annulé après ${fr(done)} tuiles.`
+    : `Carte enregistrée` + (fail ? `, ${fr(fail)} tuiles en échec (relance pour compléter)` : '') + '.';
+  dlRunning = false;
+  $('dl-go').textContent = 'Télécharger'; $('dl-go').classList.remove('running');
+  setTimeout(() => $('dl-bar').classList.remove('on'), 1200);
+  renderOffline();
+}
+$('dl-go').addEventListener('click', () => dlRunning ? (dlAbort = true) : download());
+async function storedInfo(){
+  if (!('caches' in window)) return;
+  try {
+    const n = (await (await caches.open(TILE_CACHE)).keys()).length;
+    let size = '';
+    if (navigator.storage?.estimate){ const e = await navigator.storage.estimate(); size = `, ${fr(e.usage / 1048576, 0)} Mo utilisés`; }
+    $('st-info').textContent = n ? `${fr(n)} tuiles enregistrées${size}` : 'Aucune carte enregistrée';
+    $('dl-clear').disabled = !n || dlRunning;
+  } catch(e){}
+}
+$('dl-clear').addEventListener('click', async () => {
+  if (!confirm('Supprimer toutes les cartes enregistrées ?')) return;
+  await caches.delete(TILE_CACHE);
+  layers.forEach((_, i) => store.del('tvtt-dlz-' + i));
+  $('dl-status').textContent = 'Cartes supprimées.'; renderOffline(); applyOfflineZoom();
+});
+function applyOfflineZoom(){
+  const z = +store.get('tvtt-dlz-' + layerIdx, 0);
+  map.setMaxZoom(!navigator.onLine && z ? z : lay().maxZoom);
+}
+window.addEventListener('online', () => { applyOfflineZoom(); toast('Réseau retrouvé'); });
+window.addEventListener('offline', () => { applyOfflineZoom(); toast('Hors réseau : cartes enregistrées'); });
+
+$('menu').addEventListener('click', () => { $('sheet').hidden = false; renderMenu(); });
+$('sheet-close').addEventListener('click', () => { $('sheet').hidden = true; });
+function openHelp(){ $('help').hidden = false; $('help').querySelector('.sheet-card').scrollTop = 0; }
+$('help-open').addEventListener('click', openHelp);
+$('help-open2').addEventListener('click', openHelp);
+$('help-close').addEventListener('click', () => { $('help').hidden = true; });
+$('sheet').addEventListener('click', e => { if (e.target === $('sheet')) $('sheet').hidden = true; });
+
+/* ---------- Divers ---------- */
+let toastT;
+function toast(msg, ms = 1800){
+  const t = $('toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), ms);
+}
+function setPanel(show){
+  document.body.classList.toggle('nopanel', !show);
+  store.set('tvtt-panel', show ? '1' : '0');
+  layout();
+  if (follow && meMarker) setTimeout(() => showAt(meMarker.getLatLng()), 260);
+}
+$('hide-panel').addEventListener('click', () => setPanel(false));
+$('show-panel').addEventListener('click', () => setPanel(true));
+map.on('click', () => { if ($('lock').hidden) showClimb(); });
+$('hud').addEventListener('click', showClimb);
+function fitVals(){
+  document.querySelectorAll('.hud .val').forEach(v => {
+    v.style.fontSize = '';
+    if (v.clientWidth && v.scrollWidth > v.clientWidth){
+      const fs = parseFloat(getComputedStyle(v).fontSize);
+      v.style.fontSize = Math.floor(fs * v.clientWidth / v.scrollWidth) + 'px';
+    }
+  });
+}
+function layout(){
+  fitVals();
+  const hidden = document.body.classList.contains('nopanel');
+  document.documentElement.style.setProperty('--panel-h', (hidden ? 90 : $('panel').offsetHeight + 16) + 'px');
+  document.documentElement.style.setProperty('--hud-b', ($('hud').getBoundingClientRect().bottom + 8) + 'px');
+  drawProfile(lastAlong);
+}
+window.addEventListener('resize', layout);
+window.addEventListener('orientationchange', () => setTimeout(() => { layout(); map.invalidateSize(); if (follow && meMarker) showAt(meMarker.getLatLng()); }, 300));
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { drawTrack(); layout(); });
+
+/* ---------- Démarrage ---------- */
+document.body.classList.toggle('big', store.get('tvtt-big', '0') === '1');
+document.body.classList.toggle('sun', store.get('tvtt-sun', '0') === '1');
+document.body.classList.toggle('nopanel', store.get('tvtt-panel', '1') === '0');
+document.body.classList.toggle('compact', store.get('tvtt-compact', '0') === '1');
+document.body.classList.toggle('trans', store.get('tvtt-trans', '1') === '1');
+$('compass').classList.toggle('on', headUp);
+const profOn = store.get('tvtt-prof', '1') !== '0';
+document.body.classList.toggle('noprof', !profOn); $('prof').setAttribute('aria-pressed', profOn);
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+applyOfflineZoom();
+layout();
+if (document.fonts) document.fonts.ready.then(layout);
+
+const libReady = (async () => {
+  try {
+    let list = await idb.all();
+    const old = store.get('tvtt-gpx', null);
+    if (!list.length && old){                         // reprise de la trace de l'ancienne version
+      const g = parseGPX(old), tmp = buildTrack(g.pts, g.wpts, g.name);
+      await idb.put({id:'ancienne', name:store.get('tvtt-name', g.name || 'Trace'), gpx:old, total:tmp.total, up:tmp.up, added:Date.now()});
+      store.del('tvtt-gpx'); list = await idb.all();
+    }
+    const curId = store.get('tvtt-cur', '');
+    const cur = curId === 'none' ? null : (list.find(r => r.id === curId) || list.sort((a, b) => b.added - a.added)[0]);
+    if (cur) openRec(cur);
+  } catch(e){
+    const old = store.get('tvtt-gpx', null);
+    if (old) try { openRec({id:'ancienne', name:store.get('tvtt-name', 'Trace'), gpx:old}); } catch(err){}
+  }
+  updateNav(lastAlong);
+})();
+$('actpick').querySelectorAll('.actbtn').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === act));
+$('actpick').addEventListener('click', async e => {
+  const b = e.target.closest('.actbtn'); if (!b) return;
+  setAct(b.dataset.v);
+  $('actpick').hidden = true;
+  await libReady;
+  if (!T){ if (store.get('tvtt-cur', '') !== 'none') $('welcome').hidden = false; setFreeMode(true); }
+  if (store.get('tvtt-tip', '0') !== '1'){ store.set('tvtt-tip', '1'); toast('Touche l’écran pour voir le reste à monter. La flèche masque les boutons.', 6000); }
+  else toast(A().name);
+});
+})();
+</script>
+</body>
+</html>
