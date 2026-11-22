@@ -1,5 +1,5 @@
 // Trace VTT : fonctionnement hors réseau
-const SHELL = 'tvtt-shell-v3';
+const SHELL = 'tvtt-shell-v4';
 const TILES = 'tvtt-tiles';
 const TILE_HOSTS = ['tile.opentopomap.org', 'data.geopf.fr', 'wmts.geo.admin.ch', 'tile.openstreetmap.org'];
 const LIBS = ['cdnjs.cloudflare.com', 'cdn.jsdelivr.net', 'fonts.googleapis.com', 'fonts.gstatic.com'];
@@ -17,7 +17,7 @@ self.addEventListener('install', e => {
 
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys()
-    .then(keys => Promise.all(keys.filter(k => k !== SHELL && k !== TILES).map(k => caches.delete(k))))
+    .then(keys => Promise.all(keys.filter(k => k.startsWith('tvtt-shell-') && k !== SHELL).map(k => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 
@@ -27,7 +27,7 @@ self.addEventListener('fetch', e => {
   const url = new URL(req.url);
 
   // Tuiles : d'abord les cartes enregistrées, sinon le réseau
-  if (TILE_HOSTS.some(h => url.hostname.endsWith(h))){
+  if (TILE_HOSTS.some(h => (url.hostname === h || url.hostname.endsWith('.' + h)))){
     e.respondWith(caches.open(TILES)
       .then(c => c.match(req.url, {ignoreVary:true}))
       .then(r => r || fetch(req)));
