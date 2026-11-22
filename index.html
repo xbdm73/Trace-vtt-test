@@ -1278,12 +1278,33 @@ function checkpointRide(force = false){
     saveRide(); lastRideSave = now;
   }
 }
+// GPS drift guard: require sustained displacement beyond positional uncertainty.
+let motionCandidate = null;
+let filteredAltitude = null;
+function stableAltitude(c){
+  if (!Number.isFinite(c.altitude) || !Number.isFinite(c.altitudeAccuracy) || c.altitudeAccuracy > 20) return filteredAltitude;
+  if (filteredAltitude == null){ filteredAltitude = c.altitude; return filteredAltitude; }
+  const delta = c.altitude - filteredAltitude;
+  // Sudden altitude changes are held until subsequent reliable fixes converge.
+  if (Math.abs(delta) > 12) return filteredAltitude;
+  filteredAltitude += Math.max(-3, Math.min(3, delta * .2));
+  return filteredAltitude;
+}
 const rideLine = L.polyline(ride.pts.map(p => [p.lat, p.lon]), {color:'#0B3D91', weight:3, opacity:.75, interactive:false}).addTo(map);
 function rideAdd(c, t){
   if (c.accuracy > 35) return;
   const p = {lat:+c.latitude.toFixed(6), lon:+c.longitude.toFixed(6), ele:(c.altitude != null && !isNaN(c.altitude)) ? Math.round(c.altitude * 10) / 10 : null, t};
   const lp = ride.pts[ride.pts.length - 1];
   if (lp){
+    const displacement = hav(lp, p);
+    const uncertainty = Math.max(8, Math.min(35, c.accuracy) * 1.5);
+    const sensorMoving = Number.isFinite(c.speed) && c.speed >= 0.8;
+    if (!sensorMoving && displacement < uncertainty){ motionCandidate = null; return; }
+    if (!sensorMoving){
+      if (!motionCandidate || hav(motionCandidate, p) > uncertainty * 2){ motionCandidate = p; return; }
+      if (t - motionCandidate.t < 4000) return;
+    }
+    motionCandidate = null;
     const d = hav(lp, p), dt = (t - lp.t) / 1000;
     // Reject stale, non-monotonic and physically implausible fixes before accumulating distance.
     if (dt <= 0 || (dt < 90 && d / dt > 25)) return;
@@ -1293,7 +1314,8 @@ function rideAdd(c, t){
     if (dt < 90 && dt > 0 && d / dt > A().moveSpd){ ride.moving += dt; if (sess) sess.moving += dt; }
   }
   // Poor vertical accuracy must not inflate accumulated ascent.
-  if (p.ele != null && (c.altitudeAccuracy == null || c.altitudeAccuracy <= 15)){
+  if (p.ele != null && Number.isFinite(c.altitudeAccuracy) && c.altitudeAccuracy <= 15 && filteredAltitude != null){
+    p.ele = Math.round(filteredAltitude * 10) / 10;
     if (ride.ref == null) ride.ref = p.ele;
     else { const dd = p.ele - ride.ref; if (dd > 5){ ride.up += dd; ride.ref = p.ele; } else if (dd < -5) ride.ref = p.ele; }
   }
@@ -1326,7 +1348,7 @@ async function exportRide(){
 $('rec-export').addEventListener('click', exportRide);
 $('rec-reset').addEventListener('click', () => {
   if (ride.pts.length > 1 && !confirm('Effacer la sortie enregistrée et repartir de zéro ? Pense à l’exporter avant.')) return;
-  ride = newRide(); saveRide(); rideLine.setLatLngs([]); vmax = 0; $('vmax').textContent = '0'; renderRide(); if (!T) showFree();
+  ride = newRide(); motionCandidate = null; filteredAltitude = null; saveRide(); rideLine.setLatLngs([]); vmax = 0; $('vmax').textContent = '0'; renderRide(); if (!T) showFree();
 });
 
 /* ---------- GPS ---------- */
@@ -1426,10 +1448,11 @@ function onPos(p){
   updateNav(T ? lastAlong : null);
   if (!T) showFree();
 
-  if (c.altitude != null && !isNaN(c.altitude)){
-    $('alt').textContent = String(Math.round(c.altitude));
-    $('alt-lbl').textContent = 'Altitude GPS';
-    $('alt-tag').textContent = (c.altitudeAccuracy ? `± ${Math.round(c.altitudeAccuracy)} m` : 'GPS') + (traceEle != null && T.hasEle ? `, trace ${fr(Math.round(traceEle))} m` : '');
+  const displayAltitude = stableAltitude(c);
+  if (displayAltitude != null){
+    $('alt').textContent = String(Math.round(displayAltitude));
+    $('alt-lbl').textContent = 'Altitude GPS filtrée';
+    $('alt-tag').textContent = (Number.isFinite(c.altitudeAccuracy) ? `± ${Math.round(c.altitudeAccuracy)} m (mesure brute)` : 'GPS') + (traceEle != null && T.hasEle ? `, trace ${fr(Math.round(traceEle))} m` : '');
   } else if (traceEle != null && T.hasEle){
     $('alt').textContent = String(Math.round(traceEle));
     $('alt-lbl').textContent = 'Altitude trace';
