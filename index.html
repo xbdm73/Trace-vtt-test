@@ -1736,10 +1736,14 @@ async function download(){
   await Promise.all(Array.from({length:6}, worker));
   show();
   const zMax = dlDetail === 'max' ? d.dlMax : d.dlStd, k = 'tvtt-dlz-' + layerIdx;
-  store.set(k, Math.max(zMax, +store.get(k, 0)));
+  // Only advertise a zoom level after verifying that every requested tile is cached.
+  let missing = 0;
+  for (const job of list) if (!(await cache.match(job.url))) missing++;
+  if (!full && !dlAbort && missing === 0) store.set(k, Math.max(zMax, +store.get(k, 0)));
   $('dl-status').textContent = full ? 'Stockage plein : supprime des cartes ou réduis la zone.'
-    : dlAbort ? `Téléchargement annulé après ${fr(done)} tuiles.`
-    : `Carte enregistrée` + (fail ? `, ${fr(fail)} tuiles en échec (relance pour compléter)` : '') + '.';
+    : dlAbort ? `Téléchargement annulé après ${fr(done)} tuiles ; ${fr(missing)} manquantes.`
+    : missing ? `Carte incomplète : ${fr(missing)} tuiles manquantes sur ${fr(list.length)}. Relance le téléchargement.`
+    : 'Carte vérifiée : toutes les tuiles demandées sont enregistrées.';
   dlRunning = false;
   $('dl-go').textContent = 'Télécharger'; $('dl-go').classList.remove('running');
   setTimeout(() => $('dl-bar').classList.remove('on'), 1200);
